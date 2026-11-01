@@ -8,10 +8,12 @@ phase diff against docs 01 to 05 before merge.
 Status legend: [ ] open, [~] in progress, [x] done
 
 ## Week 1 — Foundation and security
-- [ ] **Phase 0: Setup.** Repo, folders per TRD, `.env.example`, lint,
+- [x] **Phase 0: Setup.** Repo, folders per TRD, `.env.example`, lint,
   typecheck, test runner, git author set to the alias identity.
   Done when: `npm run build`, lint, typecheck and an empty test run all pass
   in `web/` and `checker/`; no secrets in git history.
+  Verified on 2026-11-01; commands, results, dependency decisions and review
+  are recorded in [Phase 0 verification](phase-0-verification.md).
 - [ ] **Phase 1: Database.** Drizzle schema and migrations for every table in
   doc 05, seed script with fake data.
   Done when: migrations apply to a clean Neon branch, the partial unique

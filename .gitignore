@@ -1,0 +1,26 @@
+node_modules/
+.next/
+.wrangler/
+dist/
+coverage/
+.vitest/
+playwright-report/
+test-results/
+*.tsbuildinfo
+next-env.d.ts
+worker-configuration.d.ts
+
+# Keep credentials, local tool state and identifying machine paths out of Git.
+.env
+.env.*
+!.env.example
+.dev.vars
+.dev.vars.*
+*.pem
+*.key
+*.log
+.DS_Store
+.claude-flow/
+.agents/
+.codex/
+.vercel/
