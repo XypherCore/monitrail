@@ -1,6 +1,29 @@
 # Phase 0 — setup and verification
 
-Date: 2026-11-01. Scope: Phase 0 only; Phase 1 has not started.
+Verification date: 2026-11-01. Scope: Phase 0 only. The results below are a
+historical record of setup verification, rather than the current phase state.
+
+## Purpose and completion log
+
+Phase 0 establishes reproducible web and checker workspaces, pinned tooling,
+names-only environment inventories and a private-by-default development
+baseline before application or security features are added.
+
+- **2026-11-01 — Complete.** Implementation commit `2062c76` on
+  `phase/0-setup`. Both workspaces passed build, lint, typecheck and their
+  intentionally empty test runs. Browser/Worker smoke checks, secret scans
+  and independent review passed; details and limitations are recorded below.
+- **2026-11-02 — Log clarified.** Purpose, completion evidence and historical
+  scope are now explicit. Phase 1 was subsequently completed; see its
+  [verification log](phase-1-verification.md). Empty Phase 0 tests do not
+  establish SSRF, authentication or authorization protection.
+
+## Security outcome at completion
+
+Names-only examples, ignored local credentials, alias commit identity and
+secret scans were verified. No application authentication, authorization,
+SSRF protection, HMAC verification or channel encryption was implemented or
+claimed by this setup phase.
 
 ## Changes
 
@@ -44,8 +67,9 @@ the root `package-lock.json` records the transitive graph and integrity hashes.
 | wrangler | 4.156.0 | Current stable Worker bundler, local runtime and runtime-type generator |
 | @playwright/test | 1.64.1 | Current stable browser tooling for the required responsive and console smoke check |
 
-Node 24.12.0 and npm 11.6.2 are the available, tested runtime versions.
-No database, ORM, auth, charting or alert-delivery packages are installed.
+Node 24.12.0 and npm 11.6.2 were the available, tested runtime versions.
+At Phase 0 completion, no database, ORM, auth, charting or alert-delivery
+packages were installed.
 Gitleaks 8.30.1 is used only as a temporary verification CLI, downloaded from
 its official release and verified against the release SHA-256 checksum.
 
@@ -134,10 +158,11 @@ Additional checks:
 - Independent second-model review by `gpt-6-astra`: approved for Phase 0
   with no actionable findings after reviewing the final scaffold and supplied
   build, lint, typecheck, test, dependency, secret and browser evidence.
-- Git is on `phase/0-setup`; the project alias was configured before the
+- Git was on `phase/0-setup` at completion; the project alias was configured before the
   baseline commit and author/committer metadata was verified. The original
-  six specifications remain unchanged except Phase 0's completed checkbox
-  and this verification link in doc 06. Phase 1 remains unchecked/unstarted.
+  six specifications at that checkpoint remained unchanged except Phase 0's
+  completed checkbox and this verification link in doc 06. Phase 1 was
+  unchecked/unstarted at that checkpoint.
 
 Non-blocking tooling observation: npm emitted Node's `DEP0169` deprecation
 warning during some commands. Application lint had no warnings and the

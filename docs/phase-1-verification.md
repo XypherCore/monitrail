@@ -4,6 +4,39 @@ Date: 2026-11-01. Branch: `phase/1-database`, based on verified Phase 0
 commit `2062c76`. Scope is Phase 1 only. The plan has 12 phases, numbered
 0 through 11; no Phase 2 implementation is included here.
 
+## Purpose and completion log
+
+Phase 1 establishes the persisted data model and repeatable migrations, with
+fake development data and database integrity checks before application
+access is exposed. Ownership foreign keys protect relationships; the later
+authenticated access layer must still enforce ownership on every query.
+
+- **2026-11-01 — Complete.** Implementation commit `f8c2f89` on
+  `phase/1-database`. Clean Neon migration/replay, rejection of a second open
+  incident, final seed execution and idempotency passed. Both workspaces
+  passed build, lint and typecheck; all 16 web tests passed. Secret scans,
+  production smoke checks and independent review passed, as detailed below.
+- **2026-11-02 — Log clarified.** Purpose, completion evidence and security
+  boundaries are now explicit. Auth tables are schema only: OAuth, protected
+  routes and application IDOR protection remain unimplemented Phase 2 work.
+- **2026-11-02 — Repository recheck passed.** Both workspace builds,
+  typechecks and lint passed; all 16 existing web tests and the checker's
+  intentionally empty suite passed. `npm audit --audit-level=low` reported
+  zero vulnerabilities. The documentation changes passed credential-pattern
+  and link checks, names-only examples and alias history checks, and a
+  second-model review. The original live Neon and browser acceptance checks
+  above were not rerun for this documentation-only update. Phase 2 remains
+  unstarted and unverified.
+
+## Security outcome at completion
+
+Tests verified ownership constraints, cascading deletion, password-storage
+rejection, transactional fixture safety and credential-safe administrative
+validation errors. Secret scans and names-only environment examples were
+checked. These controls do not establish application IDOR protection,
+guarded target fetching, signed internal endpoints or channel encryption;
+those require their later phase implementations and security tests.
+
 ## Changes
 
 - Added the Drizzle PostgreSQL schema and committed generated SQL, snapshot

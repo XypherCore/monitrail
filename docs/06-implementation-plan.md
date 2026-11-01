@@ -25,6 +25,8 @@ Status legend: [ ] open, [~] in progress, [x] done
   data-access layer requiring `userId`.
   Done when: unauthenticated requests redirect to `/login?next=`; IDOR tests
   prove user A cannot read, edit or delete user B's rows.
+  Prerequisite state checked on 2026-11-02: not started or verified; see
+  [Phase 2 status log](phase-2-verification.md).
 - [ ] **Phase 3: SSRF guard.** Build and test the guard before ANY code that
   fetches a user URL.
   Done when: the test suite covers every rule in doc 02 (private ranges,
