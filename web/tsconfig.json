@@ -3,6 +3,8 @@
     "target": "ES2024",
     "lib": ["dom", "dom.iterable", "esnext"],
     "allowJs": false,
+    "allowImportingTsExtensions": true,
+    "erasableSyntaxOnly": true,
     "skipLibCheck": true,
     "strict": true,
     "noEmit": true,

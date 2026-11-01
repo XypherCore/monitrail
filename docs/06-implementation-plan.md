@@ -14,10 +14,13 @@ Status legend: [ ] open, [~] in progress, [x] done
   in `web/` and `checker/`; no secrets in git history.
   Verified on 2026-11-01; commands, results, dependency decisions and review
   are recorded in [Phase 0 verification](phase-0-verification.md).
-- [ ] **Phase 1: Database.** Drizzle schema and migrations for every table in
+- [x] **Phase 1: Database.** Drizzle schema and migrations for every table in
   doc 05, seed script with fake data.
   Done when: migrations apply to a clean Neon branch, the partial unique
   index on open incidents rejects a second open incident, seed runs.
+  Verified on 2026-11-01; clean Neon migration, incident uniqueness, seed,
+  general checks and independent review are recorded in
+  [Phase 1 verification](phase-1-verification.md).
 - [ ] **Phase 2: Auth and access layer.** OAuth login, protected routes,
   data-access layer requiring `userId`.
   Done when: unauthenticated requests redirect to `/login?next=`; IDOR tests

@@ -7,7 +7,7 @@
 | Charts | Recharts (swap only if bundle size becomes a problem) |
 | Database | PostgreSQL on Neon (free tier) |
 | ORM / migrations | Drizzle ORM + drizzle-kit |
-| Auth | OAuth (GitHub, Google) via Auth.js, unless current docs say otherwise |
+| Auth | OAuth (GitHub, Google) via Better Auth, following current Auth.js guidance; see Phase 1 verification |
 | Checker | Cloudflare Worker (TypeScript) with Cron Triggers |
 | Hosting | Vercel (web), Cloudflare (checker), Neon (DB). Free tiers only in v1 |
 | Alerts | Telegram Bot API, generic outgoing webhooks |

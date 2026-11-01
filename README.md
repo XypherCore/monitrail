@@ -1,7 +1,8 @@
 # Monitrail
 
 Website uptime and performance monitor. Read `AGENTS.md`, then docs 01–06
-in order before making changes. The current implementation is Phase 0 only.
+in order before making changes. Phase 0 setup is complete; Phase 1 adds the
+database schema, migrations, fake-data seed and database integrity tests.
 
 ## Local setup
 
@@ -36,11 +37,12 @@ for the web app. TypeScript checks run separately.
 The web scripts use Next.js's supported Webpack mode because Turbopack's
 PostCSS subprocess could not bind its required local port in this environment.
 
-Vitest intentionally has no application tests in Phase 0. Both test scripts
-temporarily use `--passWithNoTests` for the specified empty-run check; remove
-that flag when each package gains its first tests. Passing empty suites does
-not verify application or security behavior. Playwright is installed for
-browser smoke checks, with application smoke tests deferred to later phases.
+Web Vitest tests apply the committed SQL migrations to in-memory PostgreSQL
+(PGlite) and exercise ownership constraints, cascade deletion, incident
+uniqueness and seed safety. These tests need no credentials and never connect
+to `DATABASE_URL`. The checker still has an intentionally empty test suite;
+its script temporarily uses `--passWithNoTests` until its first tests arrive.
+Playwright supplies browser smoke tooling for later application flows.
 
 ## Environment and scope
 
@@ -52,7 +54,8 @@ commit or print secret values.
 
 The web app displays only its name and description. The Worker returns 404
 and has no cron triggers, outbound requests, bindings or database access.
-There is no database schema, authentication or monitoring implementation.
+Database lifecycle commands are administrative scripts; no runtime database
+client, authentication, application DAL or monitoring behavior is implemented.
 No project has been deployed or connected to a remote Git repository.
 
 Tool telemetry is disabled in Next.js dev/build/start and Wrangler scripts.
@@ -61,3 +64,50 @@ the reserved `.invalid` address is not a personal or deliverable email address.
 
 See `docs/phase-0-verification.md` for dependency decisions, provider checks,
 verification results and unresolved decisions for subsequent phases.
+
+## Database development
+
+The committed Drizzle schema and migrations live in `web/src/db/schema.ts`
+and `web/drizzle/`. Phase 1 uses the documented Better Auth core table shape
+following the TRD's current-documentation exception; auth runtime setup is
+Phase 2. Its adapter must map `user`, `account`, `session`, `verification` to
+the corresponding exported tables and use UUID generation.
+
+Generate migrations offline from the repository root:
+
+```sh
+npm run db:generate --workspace web
+```
+
+For a disposable development Neon branch, set `DATABASE_URL` in the ignored
+`web/.env.local`. Never put connection values in an example file, command-line
+arguments, logs or Git. Apply committed migrations and optionally seed:
+
+```sh
+npm run db:migrate --workspace web
+npm run db:seed --workspace web -- --confirm-test-data
+```
+
+The seed is development-only, opt-in, idempotent and non-destructive. It adds
+two fake users, paused monitors, check history, rollups, resolved incidents
+and unpublished status pages using reserved example domains. It creates no
+alert channels, provider tokens or login sessions, and never fetches a target.
+
+For the one-time Phase 1 acceptance check, use a **separate clean Neon branch**
+instead of the migrate/seed sequence above:
+
+```sh
+npm run db:verify-neon --workspace web -- --confirm-clean-branch
+```
+
+It refuses a nonempty public schema, applies and replays migrations, verifies
+the one-open-incident constraint inside a rolled-back transaction, and runs
+the seed twice. It leaves only migrations and fake development data behind.
+Raw driver/CLI errors are not printed because they can contain credentials.
+For this Phase 1 branch's already seeded disposable database, the guarded
+`--confirm-existing-fixtures` verification mode checks only the known fake
+dataset, normalizes its original seed timestamps and verifies seed
+idempotency after a simulated clock change. Regression-only edits are rolled
+back; it refuses unrelated or edited fixtures. It does not replace the clean
+branch acceptance check.
+See `docs/phase-1-verification.md` for evidence and remaining decisions.
