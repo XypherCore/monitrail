@@ -24,7 +24,10 @@ ip_address (nullable), user_agent (nullable), created_at, updated_at.
 user_id (nullable FK users, cascade). The owner must be associated whenever
 known; anonymous pre-account records have no user to cascade from and need
 expiry cleanup. These follow Better Auth's documented core model, with the
-additional nullable owner reference; no auth runtime is implemented in Phase 1.
+additional nullable owner reference. Phase 2 also stores anonymous, HMAC-keyed
+`auth-rate:<digest>` records here for the framework's atomic throttling contract.
+They contain counts/times rather than raw IP addresses and are cleaned up in
+bounded batches after expiry. OAuth-state identifiers remain separate.
 
 **monitors**
 id, user_id (FK users, cascade delete), name, url, method (default GET),
@@ -103,6 +106,11 @@ alert_channels; status_pages N-N monitors.
 - Phase 1 migration, fixture and database-verification scripts are privileged
   administrative tooling, separate from application queries and routes.
   They do not provide an application database client or bypass API.
+- Authentication persistence is a separate, server-only boundary limited to
+  the four auth tables and namespaced pre-auth rate records. Establishing a
+  login/session cannot require a previously authenticated user ID. Routes
+  delegate to the framework handler; application resource access still
+  requires the session-derived user ID and owner-scoped DAL.
 
 ## Sensitive fields
 - alert_channels.config_encrypted: encrypted at rest, never logged, never

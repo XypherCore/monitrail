@@ -21,11 +21,12 @@ Status legend: [ ] open, [~] in progress, [x] done
   Verified on 2026-11-01; clean Neon migration, incident uniqueness, seed,
   general checks and independent review are recorded in
   [Phase 1 verification](phase-1-verification.md).
-- [ ] **Phase 2: Auth and access layer.** OAuth login, protected routes,
+- [x] **Phase 2: Auth and access layer.** OAuth login, protected routes,
   data-access layer requiring `userId`.
   Done when: unauthenticated requests redirect to `/login?next=`; IDOR tests
   prove user A cannot read, edit or delete user B's rows.
-  Prerequisite state checked on 2026-11-02: not started or verified; see
+  Verified on 2026-11-02 after Phase 1: protected redirects, IDOR tests,
+  both live OAuth providers and security/browser checks; results in
   [Phase 2 status log](phase-2-verification.md).
 - [ ] **Phase 3: SSRF guard.** Build and test the guard before ANY code that
   fetches a user URL.

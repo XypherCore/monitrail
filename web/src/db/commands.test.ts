@@ -23,7 +23,7 @@ describe("administrative database commands", () => {
     expect(result.stdout + result.stderr).toContain("failed");
     expect(result.stdout + result.stderr).not.toContain(fakeSecret);
     expect(result.stdout + result.stderr).not.toContain("postgresql://");
-  });
+  }, 15_000); // Must outlast the bounded 10-second child process timeout.
 
   it("requires seed opt-in before accessing a database", () => {
     const result = spawnSync(process.execPath, ["scripts/db/seed.ts"], {
@@ -32,7 +32,7 @@ describe("administrative database commands", () => {
     expect(result.error).toBeUndefined();
     expect(result.status).toBe(1);
     expect(result.stdout + result.stderr).toContain("--confirm-test-data");
-  });
+  }, 15_000);
 
   it("refuses development seed in a production environment", () => {
     const result = spawnSync(process.execPath, ["scripts/db/seed.ts", "--confirm-test-data"], {
@@ -41,5 +41,5 @@ describe("administrative database commands", () => {
     expect(result.error).toBeUndefined();
     expect(result.status).toBe(1);
     expect(result.stdout + result.stderr).toContain("development-only");
-  });
+  }, 15_000);
 });

@@ -1,8 +1,8 @@
 # Monitrail
 
 Website uptime and performance monitor. Read `AGENTS.md`, then docs 01–06
-in order before making changes. Phase 0 setup is complete; Phase 1 adds the
-database schema, migrations, fake-data seed and database integrity tests.
+in order before making changes. Phases 0 and 1 establish the workspaces and
+database. Phase 2 adds OAuth, protected routes and owner-scoped data access.
 
 ## Local setup
 
@@ -38,8 +38,8 @@ The web scripts use Next.js's supported Webpack mode because Turbopack's
 PostCSS subprocess could not bind its required local port in this environment.
 
 Web Vitest tests apply the committed SQL migrations to in-memory PostgreSQL
-(PGlite) and exercise ownership constraints, cascade deletion, incident
-uniqueness and seed safety. These tests need no credentials and never connect
+(PGlite) and exercise ownership, OAuth/session security, durable auth limiting,
+cascade deletion, incident uniqueness and seed safety. These tests need no credentials and never connect
 to `DATABASE_URL`. The checker still has an intentionally empty test suite;
 its script temporarily uses `--passWithNoTests` until its first tests arrive.
 Playwright supplies browser smoke tooling for later application flows.
@@ -52,10 +52,13 @@ ignored `web/.env.local` or `checker/.dev.vars` and provide only the needed
 `NAME=value` entries. Phase 0 builds and runs without credentials. Never
 commit or print secret values.
 
-The web app displays only its name and description. The Worker returns 404
+The web app includes a landing page, OAuth login and protected workspace.
+Monitors and other later-phase management controls remain unavailable.
+The Worker returns 404
 and has no cron triggers, outbound requests, bindings or database access.
-Database lifecycle commands are administrative scripts; no runtime database
-client, authentication, application DAL or monitoring behavior is implemented.
+Database lifecycle commands are administrative scripts. The server-only auth
+persistence boundary and application DAL are separate; no monitoring/checker
+behavior is implemented.
 No project has been deployed or connected to a remote Git repository.
 
 Tool telemetry is disabled in Next.js dev/build/start and Wrangler scripts.
@@ -69,9 +72,8 @@ verification results and unresolved decisions for subsequent phases.
 
 The committed Drizzle schema and migrations live in `web/src/db/schema.ts`
 and `web/drizzle/`. Phase 1 uses the documented Better Auth core table shape
-following the TRD's current-documentation exception; auth runtime setup is
-Phase 2. Its adapter must map `user`, `account`, `session`, `verification` to
-the corresponding exported tables and use UUID generation.
+following the TRD's current-documentation exception. Phase 2 maps `user`,
+`account`, `session`, `verification` explicitly and uses UUID generation.
 
 Generate migrations offline from the repository root:
 
@@ -111,3 +113,50 @@ idempotency after a simulated clock change. Regression-only edits are rolled
 back; it refuses unrelated or edited fixtures. It does not replace the clean
 branch acceptance check.
 See `docs/phase-1-verification.md` for evidence and remaining decisions.
+
+## Authentication development
+
+Set `APP_URL=http://localhost:3000`, provider client IDs/secrets under the
+existing `AUTH_GITHUB_*` and `AUTH_GOOGLE_*` names, and the existing database
+connection in ignored `web/.env.local`. Provider callbacks are
+`http://localhost:3000/api/auth/callback/github` and
+`http://localhost:3000/api/auth/callback/google`. Use the same origin in the
+browser; the dev/start scripts bind to loopback `localhost`.
+
+```sh
+npm run auth:prepare --workspace web -- --generate-missing-secret
+npm run dev --workspace web
+```
+
+Preparation validates settings, generates `AUTH_SECRET` only when missing,
+restricts local-file permissions and never displays values. Production requires
+an HTTPS `APP_URL` and matching provider registrations. Provider accounts need
+a verified email; account linking is disabled. A second provider sharing an
+existing account email is refused rather than merged automatically.
+
+With the dev server running and the known Phase 1 fake owners present:
+
+```sh
+npm run auth:verify-local --workspace web -- --confirm-fixture-session
+npm run auth:verify-secrets --workspace web
+```
+
+To check the production build over local HTTPS, with installed Chromium and
+OpenSSL available:
+
+```sh
+npm run build
+npm run auth:verify-production --workspace web -- --confirm-fixture-session
+```
+
+This starts a loopback-only test server and temporary TLS proxy, validates
+secure cookies and no-JavaScript content, then removes its temporary session,
+certificate/key and test processes. Real provider credentials stay in process;
+no provider requests are made by this test.
+
+The browser acceptance creates only a temporary session for a known fake
+fixture identity, tests access/ownership/layout/logout, and removes that
+session. It makes no provider or monitored-target requests. Real provider
+consent must be tested separately by an account owner. The credential scanner
+privately compares configured values with Git-eligible files and browser assets.
+See `docs/phase-2-verification.md` for security evidence and limitations.

@@ -4,23 +4,29 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "dev": "NEXT_TELEMETRY_DISABLED=1 next dev --webpack --hostname 127.0.0.1",
+    "dev": "NEXT_TELEMETRY_DISABLED=1 next dev --webpack --hostname localhost",
     "build": "NEXT_TELEMETRY_DISABLED=1 next build --webpack",
-    "start": "NEXT_TELEMETRY_DISABLED=1 next start --hostname 127.0.0.1",
+    "start": "NEXT_TELEMETRY_DISABLED=1 next start --hostname localhost",
     "lint": "biome lint . --error-on-warnings",
     "typecheck": "NEXT_TELEMETRY_DISABLED=1 next typegen && tsc --noEmit",
     "test": "vitest run",
     "db:generate": "node ../node_modules/drizzle-kit/bin.cjs generate",
     "db:migrate": "node --env-file-if-exists=.env.local scripts/db/migrate.ts",
     "db:seed": "node --env-file-if-exists=.env.local scripts/db/seed.ts",
-    "db:verify-neon": "node --env-file-if-exists=.env.local scripts/db/verify-neon.ts"
+    "db:verify-neon": "node --env-file-if-exists=.env.local scripts/db/verify-neon.ts",
+    "auth:prepare": "node scripts/auth/setup-env.ts",
+    "auth:verify-secrets": "node scripts/auth/verify-secrets.ts",
+    "auth:verify-local": "node --env-file-if-exists=.env.local scripts/auth/verify-local.ts",
+    "auth:verify-production": "node --env-file-if-exists=.env.local scripts/auth/verify-production.ts"
   },
   "dependencies": {
     "@neondatabase/serverless": "1.2.0",
+    "better-auth": "1.7.15",
     "drizzle-orm": "0.45.4",
     "next": "16.4.3",
     "react": "19.3.1",
-    "react-dom": "19.3.1"
+    "react-dom": "19.3.1",
+    "server-only": "0.0.1"
   },
   "devDependencies": {
     "@electric-sql/pglite": "0.5.14",
