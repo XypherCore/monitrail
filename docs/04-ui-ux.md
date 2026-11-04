@@ -1,69 +1,95 @@
-# 04 — UI/UX Design Brief: Monitrail
+# 04 — UI/UX Design Brief: Monitrail (rev 2)
 
 ## Aesthetic
 Calm, dense, trustworthy operations tool. Dark-first, minimal, data forward.
-Closer to a status dashboard than a marketing site. Restrained motion only.
+Closer to a status dashboard than a marketing site. Restrained motion.
 Avoid: neon cyberpunk, fake terminal looks, gradient-heavy hero art, 3D.
 
 ## Tokens
 ```css
 :root{
-  --bg:#0B0E13;            /* canvas, tinted not pure black */
-  --panel:#121722;         /* cards, tables */
-  --panel-2:#171D2B;       /* hover, raised */
-  --border:#222B3B;
+  --bg:#0B0E13;
+  --panel:#121722;
+  --panel-2:#171D2B;
+  --border:#222B3B;          /* decorative dividers only, NOT for controls */
+  --border-strong:#64748B;   /* input, button and control boundaries */
   --text:#E6EAF2;
-  --muted:#8A94A7;         /* check contrast: 4.5:1 on --bg for body text */
-  --accent:#38BDF8;        /* CTA, focus rings, links, nothing else */
+  --muted:#8A94A7;
+  --accent:#38BDF8;
   --up:#34D399;
   --down:#F87171;
   --pending:#FBBF24;
   --paused:#64748B;
 }
 ```
-Rules:
-- Compute contrast: 4.5:1 for body text, 3:1 for large text and UI borders.
-- The accent appears only on the primary CTA, focus rings and links.
-- Status never relies on colour alone: always pair with an icon and a text
-  label (Up, Down, Pending, Paused).
+Computed contrast (WCAG): `--border-strong` is 3.77:1 on `--panel` and 4.06:1
+on `--bg`, so it meets the 3:1 requirement for control boundaries. `--muted`
+is 5.87:1 on `--panel` and 6.33:1 on `--bg`. `--border` is about 1.36:1 on
+`--bg` and is only for decorative separators between content, never for a
+control's edge. Re-compute any new colour before using it.
+- 4.5:1 for body text, 3:1 for large text and control boundaries.
+- Accent only on the primary CTA, focus rings and links.
+
+## Status presentation
+Never colour alone: every state has an icon and a text label.
+| State | Colour | Label |
+|---|---|---|
+| Up | `--up` | Up |
+| Down | `--down` | Down |
+| Pending | `--pending` | Pending |
+| Confirming | `--pending` + pulse | Confirming |
+| Paused | `--paused` | Paused |
+| Blocked | `--paused` + shield icon | Blocked |
+| Unknown | neutral outline + "?" | Unknown |
 
 ## Typography
-Geist Sans for UI, Geist Mono for URLs, numbers and timestamps (tabular
-figures so values do not jitter). Fall back to the system stack. Sizes:
-12 / 14 / 16 base 14 for dense tables, headings 20 / 24 / 32.
+Geist Sans for UI, Geist Mono for URLs, numbers, timestamps (tabular
+figures). System fallback. Base 14 px for dense tables; headings 20 / 24 / 32.
 
 ## Components
 - Radius 10 px on cards, 8 px on inputs and buttons.
-- Borders over shadows. At most one subtle shadow on popovers.
-- Monitor row: status dot + name, URL (mono, truncated), uptime 24 h,
-  avg response, last checked (relative time).
-- Uptime bar: 30 narrow segments, one per day, colour by that day's status,
-  tooltip with the exact figure.
-- Response chart: single line, p95 as a lighter secondary line, hover reads
-  out exact values. No chart junk, no animation on load.
-- Buttons: one primary per screen, secondary as outline, destructive in
-  `--down` only inside confirm dialogs.
+- Borders over shadows; one subtle shadow on popovers at most.
+- Inputs and buttons use `--border-strong`.
+- Monitor row: state, name, URL (mono, truncated, query string masked),
+  availability 24 h, avg response, last checked (relative).
 - Forms: visible labels, inline validation, helper text for URL rules.
+- Destructive actions use `--down` only inside confirm dialogs.
+
+## Charts and the daily bar (must match doc 05 definitions)
+- Response chart: line of the **average of successful checks** per bucket,
+  with a lighter **p95** line. Buckets: 24 h = 15 min, 7 d = 1 h,
+  30 d = 6 h. A bucket with no successful checks is a gap labelled
+  "No data"; never draw zero. Tooltip shows value and sample count.
+- Failed checks do not appear in latency; they appear as incident bands
+  across the chart's x-axis.
+- Daily availability bar: 30 segments, one per UTC day, using the same
+  availability formula for that day. 100% = `--up`; from 99% up to below
+  100% = `--pending` with label "Partial"; below 99% = `--down`; no data =
+  `--paused` outline. Tooltip: date, availability, coverage, incidents.
+- Availability numbers show "Not enough data" when coverage is too low
+  (doc 05), never a misleading 100%.
 
 ## Motion
-Transitions 120 to 180 ms, ease-out, on hover and state changes only. A slow
-pulse on the Pending dot. Honour `prefers-reduced-motion` completely.
+120 to 180 ms ease-out on hover and state changes only. A slow pulse on the
+Confirming and Pending dots. Honour `prefers-reduced-motion` completely.
 
 ## Responsive
-Mobile-first. Sidebar becomes a bottom tab bar under 768 px. Monitor table
-becomes stacked cards. Charts stay readable at 360 px width. Tap targets at
-least 44 px on touch devices.
+Mobile-first. Sidebar becomes a bottom tab bar under 768 px. The monitor
+table becomes stacked cards. Charts readable at 360 px. Tap targets at least
+44 px on touch.
 
 ## Accessibility
-Landmarks (`nav`, `main`, `footer`), a skip link, real heading hierarchy,
-visible `:focus-visible` rings in the accent, labels on every input, live
-region announcing status changes on the detail page.
-
-## References for feel (not to copy)
-Better Stack and Linear for density and calm; GitHub's status page for the
-public page layout.
+Landmarks, skip link, real heading hierarchy, visible `:focus-visible` in
+the accent, labels on every input, a live region announcing state changes on
+the detail page, keyboard-operable everything.
 
 ## Public status page
-Light on chrome: title, overall status banner, per-monitor rows with the
-30-day uptime bar, recent incidents list, "Powered by Monitrail" footer link.
-Must work with JavaScript disabled for the core content.
+Light on chrome: title, overall banner, per-monitor rows with the 30-day
+bar, recent incidents, "Powered by Monitrail" footer link. Core content
+works with JavaScript disabled.
+- Overall status precedence: Down > Unknown > Confirming > Pending > Up.
+  Paused and Blocked monitors are listed greyed and excluded from the
+  overall status.
+- Public incident fields: started, resolved, duration, and a human cause
+  label (for example "Connection timed out"). No URL, no raw error text.
+- An empty or unpublished page is a generic 404.

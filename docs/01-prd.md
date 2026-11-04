@@ -1,80 +1,114 @@
-# 01 — PRD: Monitrail
+# 01 — PRD: Monitrail (rev 2)
 
 ## App name and tagline
 **Monitrail** — Know when your site goes down before your users do.
 
 ## Problem
 Site owners and freelancers usually learn about downtime from an angry
-customer. Existing tools are either heavy dashboards priced per monitor or
+customer. Existing tools are heavy dashboards priced per monitor, or
 self-hosted projects that need a server. Freelancers who maintain client
-sites also have no simple way to show a client "your site was up 99.97% this
+sites also lack a simple way to show "your site was available 99.97% this
 month."
 
 ## Target user
 A freelance developer or small business owner who runs 1 to 10 websites and
 wants to be told, quickly and reliably, when one stops responding. Not an
-enterprise team. Comfortable pasting a Telegram chat ID or a webhook URL.
+enterprise team.
 
 ## Value proposition
-- Fast setup: sign in, paste a URL, done in under two minutes.
-- Security-first: the checker is hardened against SSRF and abuse by design.
-- Shareable proof: a public status page per site, usable in client reports.
+- Setup in under two minutes: sign in, paste a URL.
+- Security-first: the checker and every outbound call are hardened against
+  SSRF and abuse by design.
+- Shareable proof: public status pages usable in client reports.
 
 ## Core features (must have, v1)
-1. Sign in with OAuth (GitHub and Google). No passwords stored.
-2. Monitors: create, edit, pause, delete. Fields: name, URL (http/https
-   only), interval (5 min default and minimum), expected status (default
-   any 2xx).
-3. Scheduled checks measuring: HTTP status, response time (ms), and a
-   classified error (dns, timeout, tls, connect, bad_status, blocked).
-4. Incident logic: open an incident after 2 consecutive failures, resolve
-   after 2 consecutive successes. Failing monitors are re-checked every 60 s
-   until the state settles.
-5. Dashboard: current status, uptime % (24 h, 7 d, 30 d), average response
-   time, response-time chart.
-6. Incident log per monitor: start, end, duration, cause.
-7. Alerts on down and recovery via Telegram and generic webhooks
-   (Discord/Slack-compatible). Each alert is sent once per incident per
-   channel.
-8. Public status page per user: chosen monitors, current status, 30-day
-   uptime bar, recent incidents. No login required.
-9. A public /bot page explaining the checker's User-Agent, with an abuse
-   contact and a block-my-site request path.
+1. **Sign-in**: OAuth (GitHub, Google). No passwords. Signups are
+   invite-only until the dogfood period ends (`SIGNUP_MODE=invite`).
+2. **Monitors**: create, edit, pause, resume, delete. Fields: name, URL
+   (http/https), interval (5, 10, 15, 30 or 60 min; default 5), expected
+   status (`2xx` default, or `2xx or 3xx`). Method is always GET and timeout
+   is always 10 s; neither is user-configurable in v1.
+3. **Checks** record: HTTP status code, response time (request start to
+   response headers), and a classified error (`dns`, `timeout`, `tls`,
+   `connect`, `bad_status`, `blocked`, `other`).
+4. **Incidents**: a failing monitor is re-checked every 60 s until confirmed.
+   2 consecutive failures confirm an incident; 2 consecutive successes
+   confirm recovery. The same 60 s rule applies while confirming recovery.
+5. **Monitor states shown to users**: Pending, Confirming (first failure
+   seen, not yet confirmed), Up, Down, Paused, Blocked, Unknown (no recent
+   checks). Unknown is never displayed as Up.
+6. **Dashboard**: state, availability % (24 h, 7 d, 30 d), average and p95
+   response time (successful checks only), response-time chart.
+   Availability is time-based and derived from incidents (definition in doc
+   05). It shows "Not enough data" instead of a number when coverage is too
+   low.
+7. **Incident log** per monitor: observed start, confirmed time, resolved
+   time, duration, cause, and why it closed (recovered, paused, config
+   changed, blocked).
+8. **Alerts** on confirmed down and confirmed recovery through Telegram,
+   Discord, Slack and a generic webhook (versioned JSON payload with an
+   `event_id`). Delivery is at-least-once; duplicates are possible only
+   after a crash and receivers can dedupe on `event_id`. Telegram is linked
+   by a one-time code from the destination chat (private chats only in v1).
+9. **Public status pages**: each user can create up to 3 pages, each with up
+   to 10 of their monitors. A page needs at least one monitor to publish.
+   It shows overall status, per-monitor state, a 30-day availability bar and
+   recent incidents. The monitored URL is hidden unless the owner enables it
+   per monitor.
+10. **`/bot` page**: how the checker identifies itself, an abuse contact
+    (alias address), and how site owners request a block.
 
 ## Nice to have (v1.1+)
-- SSL certificate expiry check and alert
-- Email alerts (needs a verified sending domain)
-- Monthly uptime report (HTML/PDF) for client retainers
-- Custom domain for the status page
-- Keyword/content check
-- "Check now" button
+SSL expiry alerts, email alerts (needs a verified domain), monthly report
+(HTML/PDF) for client retainers, custom status-page domain, keyword check,
+"check now" button, Telegram group chats.
 
 ## Out of scope for v1
-Billing or payments, teams/organisations, SMS or phone alerts, multi-region
-checks, anonymous "check any site" public box, API keys, mobile app, storing
-response bodies, third-party analytics or trackers.
+Billing or payments, teams or organisations, SMS or phone alerts,
+multi-region checks, an anonymous "check any site" box, API keys, mobile
+app, storing response bodies, third-party analytics or trackers,
+user-configurable method or timeout.
 
 ## User stories
-- As a freelancer, I want to add a client's URL so that I'm alerted before
-  the client notices.
-- As a site owner, I want a Telegram message when my site is down and when
-  it recovers so that I can react immediately.
-- As a freelancer, I want a public status page so that I can send a client
-  proof of uptime.
-- As a site owner, I want to see response-time trends so that I can spot
-  slowdowns early.
-- As the owner of a monitored site, I want to read how the checker
-  identifies itself and ask to be blocked.
+- As a freelancer, I add a client's URL so I'm alerted before the client
+  notices.
+- As a site owner, I get a Telegram message when my site is confirmed down
+  and when it recovers.
+- As a freelancer, I share a public status page as proof of availability.
+- As a site owner, I read response-time trends to spot slowdowns early.
+- As the owner of a monitored site, I read how the checker identifies itself
+  and can request a block.
 
-## Success metrics
-- A new user creates a working monitor in under 2 minutes.
-- Dogfood: Monitrail monitors Jumeirah Fashion, the Aelvon portfolio and
-  itself for 14 days with zero false incidents (reviewed by hand).
-- The SSRF test suite and the cross-user access (IDOR) tests pass in CI.
-- Checker misses fewer than 1% of scheduled checks over the dogfood period.
+## Success metrics (each with a definition)
+- **Time to first monitor**: a new user creates a working monitor in under
+  2 minutes (measured by hand with 3 test users).
+- **Dogfood**: Monitrail monitors Jumeirah Fashion, the Aelvon portfolio and
+  itself for 14 consecutive days with zero false incidents (every incident
+  reviewed by hand).
+- **Missed checks** under 1%: a missed check is an active 5-minute slot with
+  no recorded result within the interval plus 60 s. Active time excludes
+  paused periods. Denominator = expected slots over the period.
+- **Security**: the SSRF suite, IDOR suite, cache-revocation suite and
+  deletion test all pass in CI.
 
-## Open decisions (agent must not invent answers; ask the owner)
-1. Brand owner: Aelvon, XypherCore, or standalone. Default until decided:
-   no personal identifying information anywhere in the repo, UI or commits.
+## Schedule
+Build milestone: 4 weeks (phases 0 to 10 in doc 06). Proof milestone: 14
+consecutive clean days after deploy (phase 11). Total about 6 weeks. If the
+build slips, scope changes need the owner's approval; the agent may not cut
+or add scope by itself. A failed dogfood day (false incident, missed-check
+breach) restarts the 14-day count after the fix.
+
+## Open decisions (owner only; agents must not invent answers)
+1. Brand owner: XypherCore (parent organisation). Maintainer identity stays
+   an alias for now (see doc 02) and may later change to the owner's real
+   name. All identity strings (brand name, maintainer name, abuse contact,
+   footer text) live in ONE config file so that change is a one-file edit.
+   Never hard-code identity strings elsewhere.
 2. Repo visibility. Default: private until v1 ships.
-3. Domain. Default: free *.vercel.app subdomain.
+3. Domain. Default: free subdomain of the host.
+4. Hosting plan and commercial status (see doc 02, "Hosting terms"). Default
+   for the build and dogfood: personal project, invite-only, no monetization;
+   decide before opening public signups.
+5. Database: Supabase free Postgres (default) or Neon Launch (pay-as-you-go).
+6. Global monitor cap. Provisional 50, to be replaced by the measured value
+   from phase 5.

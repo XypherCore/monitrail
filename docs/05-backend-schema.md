@@ -1,138 +1,205 @@
-# 05 — Backend Schema: Monitrail
+# 05 — Backend Schema: Monitrail (rev 2)
 
-PostgreSQL (Neon). Migrations via drizzle-kit. All timestamps `timestamptz`
-in UTC. Primary keys are `uuid` unless noted.
+PostgreSQL. Migrations via drizzle-kit. Timestamps are `timestamptz` (UTC).
+Primary keys are `uuid` unless noted. **Every foreign key is `ON DELETE
+CASCADE` unless this document says otherwise**, so deleting a user removes
+all of their data.
 
-## Tables
-**users** — id, email (unique), name, avatar_url, email_verified (bool default
-false), created_at, updated_at. Better Auth's `image` property maps to
-`avatar_url`. Auth table IDs are UUIDs, using its documented UUID configuration
-when auth is implemented in Phase 2.
+## Auth tables
+Per Auth.js with database sessions. Identify accounts by
+(`provider`, `provider_account_id`); never link by email. `users.email` is
+nullable. OAuth access and refresh tokens are not persisted unless the
+library cannot work without them.
+- `users`: id, name, email (nullable), avatar_url, created_at.
+- `accounts`: provider, provider_account_id, user_id. PK (provider,
+  provider_account_id).
+- `sessions`: session_token (PK), user_id, expires.
+- `invites`: id, code_hash (unique), created_at, used_by (FK users, ON DELETE
+  SET NULL), used_at. Used while `SIGNUP_MODE=invite`.
 
-**accounts** — id, user_id (FK users, cascade), account_id, provider_id,
-access_token, refresh_token, id_token, access_token_expires_at,
-refresh_token_expires_at, scope, password, created_at, updated_at.
-Unique (provider_id, account_id). Optional token fields remain nullable;
-no tokens are seeded. A CHECK requires password IS NULL: OAuth only, no
-password storage or credential authentication is introduced. Phase 2 must
-configure provider/token handling and encrypted token storage appropriately.
-
-**sessions** — id, user_id (FK users, cascade), token (unique), expires_at,
-ip_address (nullable), user_agent (nullable), created_at, updated_at.
-
-**verification** — id, identifier, value, expires_at, created_at, updated_at,
-user_id (nullable FK users, cascade). The owner must be associated whenever
-known; anonymous pre-account records have no user to cascade from and need
-expiry cleanup. These follow Better Auth's documented core model, with the
-additional nullable owner reference. Phase 2 also stores anonymous, HMAC-keyed
-`auth-rate:<digest>` records here for the framework's atomic throttling contract.
-They contain counts/times rather than raw IP addresses and are cleaned up in
-bounded batches after expiry. OAuth-state identifiers remain separate.
-
+## Monitoring tables
 **monitors**
-id, user_id (FK users, cascade delete), name, url, method (default GET),
-interval_seconds (default 300, check >= 300), timeout_ms (default 10000),
-expected_status (default '2xx'), status ('pending' | 'up' | 'down' |
-'paused'), is_paused (bool), failures (int), successes (int),
-next_check_at, last_checked_at, created_at.
-Indexes: (user_id), (next_check_at) WHERE is_paused = false.
+id, user_id, name, url, host (canonical host, see below),
+interval_seconds (CHECK in 300, 600, 900, 1800, 3600),
+expected_status (CHECK in '2xx', '2xx_3xx'),
+is_paused (bool, the only pause flag), pause_reason (null | 'user' |
+'blocked_host'), status (CHECK in 'pending', 'up', 'down'; "paused",
+"confirming", "blocked" and "unknown" are derived for display, never
+stored), config_rev (int, starts at 1), failures, successes,
+streak_started_at, streak_first_error, next_check_at, last_checked_at,
+lease_id, lease_until, dns_checked_at, created_at.
+UNIQUE (id, user_id) (target of composite foreign keys).
+Indexes: (user_id); (host); (next_check_at) WHERE is_paused = false.
+Method is always GET and timeout always 10 s, so neither is a column.
 
-**checks** (raw results, 30-day retention)
-id (bigserial), monitor_id (FK, cascade), checked_at, ok (bool),
-status_code (int null), response_ms (int null),
-error_type (null | 'dns' | 'timeout' | 'tls' | 'connect' | 'bad_status' |
-'blocked' | 'other').
-Index: (monitor_id, checked_at DESC).
+**check_attempts** (one row per dispatched job)
+attempt_id (uuid PK), monitor_id, config_rev, expected_status (snapshot),
+state ('claimed' | 'done' | 'dropped' | 'expired'), claimed_at, expires_at.
+Deleted 1 day after leaving 'claimed'.
 
-**check_rollups_hourly**
-monitor_id, hour, total, failed, avg_ms, p95_ms, max_ms.
-PK (monitor_id, hour). Written by the maintenance job before raw rows are
-deleted.
+**checks** (30-day retention)
+id (bigserial), attempt_id (uuid, UNIQUE), monitor_id, config_rev,
+checked_at, ok, status_code, response_ms, error_type (null | 'dns' |
+'timeout' | 'tls' | 'connect' | 'bad_status' | 'blocked' | 'other'),
+redirect_count.
+Index (monitor_id, checked_at DESC). `ok` is computed by the server from the
+attempt's snapshot, never taken from the Worker.
+
+**monitor_events**
+id, monitor_id, kind ('created' | 'paused' | 'resumed' | 'config_changed' |
+'blocked'), at. Used to compute paused spans.
 
 **incidents**
-id, monitor_id (FK, cascade), started_at, resolved_at (null while open),
-cause (first error_type), created_at.
-Includes user_id (not null), with composite (monitor_id, user_id) referencing
-the monitor and cascading on deletion. Partial unique index:
-(monitor_id) WHERE resolved_at IS NULL, so a monitor
-can never have two open incidents.
-Index: (monitor_id, started_at DESC).
+id, monitor_id, started_at (observed onset: first failed check of the
+failing streak), confirmed_at, resolved_at (observed recovery onset: first
+success of the recovery streak), resolved_confirmed_at, resolved_reason
+('recovered' | 'paused' | 'config_changed' | 'blocked'), cause (error_type
+of the first failure), created_at.
+Partial unique index: (monitor_id) WHERE resolved_at IS NULL, so there is at
+most one open incident per monitor. Duration = resolved_at - started_at.
+Alerts fire at `confirmed_at` and `resolved_confirmed_at`.
 
-**alert_channels**
-id, user_id (FK, cascade), type ('telegram' | 'webhook'), label,
-config_encrypted (AES-256-GCM, includes nonce), is_verified (bool),
-created_at.
+## Alerting tables
+**alert_channels**: id, user_id, type ('telegram' | 'webhook' | 'discord' |
+'slack'), label, config_enc (envelope `v1.{key_id}.{nonce}.{ciphertext+tag}`),
+is_verified, created_at. UNIQUE (id, user_id).
 
-**monitor_alert_channels** — monitor_id, channel_id, user_id (not null).
-PK (monitor_id, channel_id). Composite owner foreign keys reference both
-the monitor and channel and cascade on deletion, preventing cross-user links.
+**telegram_link_codes**: code_hash (PK), user_id, expires_at, used_at.
 
-**alert_events**
-id, incident_id, channel_id, user_id (not null), kind ('down' | 'up'), sent_at,
-success (bool), error_category (text null).
-Composite owner foreign keys reference both the incident and channel and
-cascade on deletion. Unique (incident_id, channel_id, kind) deduplicates
-event records; external delivery guarantees still require the Phase 7 design.
+**monitor_alert_channels**: monitor_id, channel_id, user_id. PK (monitor_id,
+channel_id). Composite FKs: (monitor_id, user_id) -> monitors (id, user_id)
+and (channel_id, user_id) -> alert_channels (id, user_id). The database
+therefore refuses to attach another user's monitor or channel.
 
-**status_pages** — id, user_id (FK, cascade), slug (unique, 3-40 chars,
-lowercase, reserved words blocked), title, is_published (bool), created_at.
+**alert_outbox** (replaces a per-send event table)
+id, incident_id, channel_id, kind ('down' | 'up'), dedupe_key (UNIQUE:
+`incident_id:channel_id:kind`), payload (jsonb, no secrets), status
+('pending' | 'sending' | 'sent' | 'failed'), attempts, next_attempt_at,
+claimed_until, last_error_category (allowlisted), created_at, sent_at.
+Rows are created in the same transaction as the incident change. Delivery is
+at-least-once (doc 02).
 
-**status_page_monitors** — status_page_id, monitor_id, position,
-show_url (bool default false), user_id (not null). PK (status_page_id, monitor_id).
-Composite owner foreign keys reference both the page and monitor and cascade
-on deletion. The database enforces slug length and lowercase; the owner must
-supply the reserved-word policy before Phase 8 exposes page creation.
+## Public page tables
+**status_pages**: id, user_id, slug (UNIQUE on lower(slug), 3 to 40 chars,
+lowercase letters, digits, hyphens, reserved words blocked), title,
+is_published, created_at. UNIQUE (id, user_id).
 
-**blocked_hosts** — id, host (unique), reason, created_at. Checked at creation
-and before every check.
+**status_page_monitors**: status_page_id, monitor_id, user_id, position,
+show_url (default false). PK (status_page_id, monitor_id). Composite FKs:
+(status_page_id, user_id) -> status_pages (id, user_id) and (monitor_id,
+user_id) -> monitors (id, user_id).
 
-## Relationships
-users 1-N monitors; monitors 1-N checks, incidents; incidents 1-N
-alert_events; users 1-N alert_channels, status_pages; monitors N-N
-alert_channels; status_pages N-N monitors.
+**slug_tombstones**: slug (PK), released_at. A deleted or renamed slug cannot
+be claimed by anyone for 30 days.
+
+## Safety and operations tables
+- **blocked_hosts**: host (UNIQUE, canonical), include_subdomains (default
+  true), reason, created_at.
+- **rate_limits**: key, window_start, count. PK (key, window_start). Also
+  stores internal request nonces as `nonce:{uuid}` for 120 s.
+- **system_heartbeat**: name (PK), last_tick_at, last_claimed, last_ingested.
+
+## Canonical host
+Lowercase, strip trailing dot, IDN to punycode, normalise IP literals. A
+blocklist entry matches the host itself, and subdomains on a label boundary
+when `include_subdomains` is true (`evil.example.com` matches
+`example.com`, `notexample.com` does not). Per-hostname caps count the
+exact canonical host. Block requests are verified by the maintainer before
+adding an entry (reply from an address at that domain, or a token file at
+`/.well-known/monitrail-block.txt`). A newly blocked monitor is paused with
+reason `blocked_host` on the next claim or maintenance run and its incident
+closes as `blocked`.
+
+## Deletion policy (tested)
+| Parent deleted | Children |
+|---|---|
+| user | accounts, sessions, monitors, channels, link codes, status pages (and everything below) |
+| monitor | check_attempts, checks, monitor_events, incidents, monitor_alert_channels, status_page_monitors |
+| incident | alert_outbox rows |
+| alert_channel | monitor_alert_channels, alert_outbox rows |
+| status_page | status_page_monitors |
+Test: build a fully populated account (monitors, checks, incidents, channels,
+outbox rows, pages, in-flight attempts), delete it, and assert zero rows
+remain for that user in every table. An in-flight result for a deleted
+monitor is dropped, not an error.
 
 ## Authorization model
-- One role: signed-in user. The system owner is not a role in the app.
-- All reads and writes go through a data-access layer that takes `userId`
-  and filters by ownership (directly or via the owning monitor).
-- Route handlers never query tables directly.
-- Public status page queries are separate, read-only, and select only
-  explicitly public columns.
-- Deleting a user cascades to all of their data (account deletion is real).
-- Every declared owned relationship, including checks, rollups and auth
-  owner references, has an explicit cascade. Owners on cross-object links
-  are NOT NULL and are checked against both referenced rows. This integrity
-  protection supplements, and does not replace, the Phase 2 ownership DAL.
-- Phase 1 migration, fixture and database-verification scripts are privileged
-  administrative tooling, separate from application queries and routes.
-  They do not provide an application database client or bypass API.
-- Authentication persistence is a separate, server-only boundary limited to
-  the four auth tables and namespaced pre-auth rate records. Establishing a
-  login/session cannot require a previously authenticated user ID. Routes
-  delegate to the framework handler; application resource access still
-  requires the session-derived user ID and owner-scoped DAL.
+- One role: signed-in user. The system owner is not an app role.
+- User DAL (requires `userId`) versus service capabilities (named internal
+  functions): see doc 02. Public status queries are a third, read-only path
+  selecting only public columns.
+- Association mutations check both ends in one transaction and are also
+  enforced by the composite foreign keys above.
 
-## Sensitive fields
-- alert_channels.config_encrypted: encrypted at rest, never logged, never
-  returned to the client after creation (show only a masked label).
-- Response bodies and headers from monitored sites are never stored.
+## Quotas (enforced atomically)
+Limits are in doc 02. Every create runs in one transaction that first takes
+`pg_advisory_xact_lock(hashtextextended(user_id::text, 0))`, then counts and
+inserts. Global and per-host caps also take a global advisory lock. Tests
+fire concurrent creates and assert the cap holds.
 
-## Quotas (enforced in the data-access layer, not only the UI)
-10 monitors per user, 5-minute minimum interval, global monitor cap, a
-per-hostname cap across all users.
+## Internal API (signed; format in doc 02)
+- `POST /api/internal/claim` body `{max: 15}`. Atomically claims due monitors:
+  ```sql
+  WITH due AS (
+    SELECT id FROM monitors
+    WHERE is_paused = false AND next_check_at <= now()
+      AND (lease_until IS NULL OR lease_until < now())
+    ORDER BY next_check_at LIMIT :max
+    FOR UPDATE SKIP LOCKED)
+  UPDATE monitors m SET lease_id = gen_random_uuid(),
+         lease_until = now() + interval '120 seconds'
+  FROM due WHERE m.id = due.id RETURNING m.id, m.url, m.config_rev,
+         m.expected_status, m.lease_id;
+  ```
+  then inserts one `check_attempts` row per job, updates `system_heartbeat`,
+  runs the outbox retry sweep, and returns jobs plus the blocklist snapshot.
+- `POST /api/internal/ingest` body `{results: [{attempt_id, monitor_id,
+  config_rev, started_at, status_code?, response_ms?, error_type?,
+  redirect_count}]}`. One transaction per result; rules in doc 02. Returns
+  per attempt `accepted | dropped | error`.
+- `POST /api/internal/maintenance` (daily, idempotent): delete checks older
+  than 30 days; delete finished or expired attempts older than 1 day; delete
+  outbox rows sent more than 90 days ago; delete rate_limit rows older than
+  1 day; delete expired link codes; release slug tombstones after 30 days;
+  revalidate DNS (public addresses only) for monitors in order of oldest
+  `dns_checked_at` within a time budget, pausing offenders; log table sizes.
+  Safe to run twice; a missed day is caught up the next day.
+- `GET /api/health`: 200 if the heartbeat is under 180 s old and storage is
+  under 90% of the plan limit, else 503. No details in the body.
+- `POST /api/telegram/webhook`: verifies the secret-token header, handles
+  `/start <code>`, nothing else.
 
-## Internal API (HMAC-signed, Worker only)
-- `GET  /api/internal/due`: returns up to 40 monitors with
-  next_check_at <= now, not paused, host not blocked. Returns id and URL only.
-- `POST /api/internal/ingest`: batch of {monitor_id, checked_at, ok,
-  status_code, response_ms, error_type}. Writes checks, runs the state
-  machine, schedules next_check_at, sends alerts.
-- `POST /api/internal/maintenance`: daily. Builds hourly rollups, deletes raw
-  checks older than 30 days.
-Signature: HMAC-SHA256 over `timestamp + "." + body`; headers
-`x-ts` and `x-sig`; reject on more than 60 s skew.
+## Availability, coverage and latency (the numbers users see)
+**Availability % (time-based, per window of 24 h, 7 d or 30 d)**
+- Window start = max(now - window, monitor created_at).
+- Excluded time = paused spans (from `monitor_events`) + unobserved gaps. A
+  gap is the span between two consecutive accepted checks more than 3 x the
+  interval apart, unless an incident is open during it (that time counts as
+  downtime).
+- Downtime = union of incident intervals from `started_at` to `resolved_at`
+  (or now), clipped to the window, minus excluded time.
+- Observed = window length - excluded. Coverage = observed / window length.
+- Availability = 100 x (1 - downtime / observed). If coverage is below 50%
+  or observed is under 1 hour, show "Not enough data".
+- Worked examples (30 days = 43,200 min):
+  1. One incident of 15 min, no pauses, no gaps: 100 x (1 - 15 / 43,200) =
+     99.965%, coverage 100%.
+  2. Paused for 10 days, same incident: observed 28,800 min, availability
+     99.948%, coverage 66.7%.
+  3. Checker dead for 2 days, incident-free: gap excluded, coverage 93.3%,
+     availability 100%, and a stale-checker warning is visible.
+  4. Checker dead for 20 days: coverage 33.3%, show "Not enough data".
+- The daily bar applies the same formula to each UTC day.
 
-## Uptime definition
-Uptime % = successful checks / total checks in the window (check-based).
-Downtime duration comes from incidents. Document this on the UI so numbers
-are never ambiguous.
+**Latency**: average and p95 over successful checks only, using the
+measurement definition in doc 02. Chart buckets are in doc 04. Windows up to
+30 days are computed directly from `checks`, so no rollup tables exist in v1.
+
+## Storage budget (30-day retention, Supabase Free 500 MB)
+At the 50-monitor cap and 5-minute intervals: about 432,000 `checks` rows per
+30 days plus confirmation rechecks, roughly 100 to 150 bytes per row
+including the index, so on the order of 65 MB. Other tables stay small:
+outbox rows 90 days, incidents and events 1 year, attempts 1 day, rate
+limits 1 day. Phase 10 measures actual table and index sizes. If the
+database passes 80% of the plan limit, maintenance logs a warning; at 90%
+`/api/health` fails so the external check alerts the owner.
