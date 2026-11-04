@@ -28,11 +28,13 @@ Status legend: [ ] open, [~] in progress, [x] done
   Verified on 2026-11-02 after Phase 1: protected redirects, IDOR tests,
   both live OAuth providers and security/browser checks; results in
   [Phase 2 status log](phase-2-verification.md).
-- [ ] **Phase 3: SSRF guard.** Build and test the guard before ANY code that
+- [x] **Phase 3: SSRF guard.** Build and test the guard before ANY code that
   fetches a user URL.
   Done when: the test suite covers every rule in doc 02 (private ranges,
   metadata IPs, IPv4-mapped IPv6, odd IP encodings, userinfo, redirects to
   private targets, bad ports, blocked hosts) and passes.
+  Verified on 2026-11-04. Test results, independent review and integration
+  limits are recorded in the [Phase 3 verification log](phase-3-verification.md).
 - [ ] **Phase 4: Monitor CRUD.** Create, edit, pause, delete, with quotas and
   guard validation, plus `blocked_hosts` check.
   Done when: bad URLs are rejected with a plain-language reason, quotas

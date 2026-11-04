@@ -3,6 +3,7 @@
 Website uptime and performance monitor. Read `AGENTS.md`, then docs 01–06
 in order before making changes. Phases 0 and 1 establish the workspaces and
 database. Phase 2 adds OAuth, protected routes and owner-scoped data access.
+Phase 3 adds the shared SSRF guard for later monitor validation and checking.
 
 ## Local setup
 
@@ -15,7 +16,7 @@ npm ci
 
 The root lockfile serves both packages; do not create package-level lockfiles.
 `web/` is the Next.js App Router app, `checker/` is the Cloudflare Worker,
-and `shared/` is reserved for later security modules and shared types.
+and `shared/` contains security code used by both workspaces.
 
 Run from the root:
 
@@ -26,6 +27,7 @@ npm run build
 npm run lint
 npm run typecheck
 npm test
+npm run test:runtime --workspace checker
 ```
 
 Both packages also expose `build`, `lint`, `typecheck` and `test` scripts
@@ -39,9 +41,10 @@ PostCSS subprocess could not bind its required local port in this environment.
 
 Web Vitest tests apply the committed SQL migrations to in-memory PostgreSQL
 (PGlite) and exercise ownership, OAuth/session security, durable auth limiting,
-cascade deletion, incident uniqueness and seed safety. These tests need no credentials and never connect
-to `DATABASE_URL`. The checker still has an intentionally empty test suite;
-its script temporarily uses `--passWithNoTests` until its first tests arrive.
+cascade deletion, incident uniqueness and seed safety. These tests need no
+credentials and never connect to `DATABASE_URL`. Checker tests cover SSRF
+policy, DoH, redirects and request limits. The separate workerd test uses an
+offline fixture Worker to exercise native fetch and byte streams.
 Playwright supplies browser smoke tooling for later application flows.
 
 ## Environment and scope
@@ -54,11 +57,11 @@ commit or print secret values.
 
 The web app includes a landing page, OAuth login and protected workspace.
 Monitors and other later-phase management controls remain unavailable.
-The Worker returns 404
-and has no cron triggers, outbound requests, bindings or database access.
+The production Worker still returns 404 and has no cron triggers, outbound
+requests, bindings or database access.
 Database lifecycle commands are administrative scripts. The server-only auth
-persistence boundary and application DAL are separate; no monitoring/checker
-behavior is implemented.
+persistence boundary and application DAL are separate. The SSRF guard is
+ready for later integration. See the [Phase 3 verification log](docs/phase-3-verification.md).
 No project has been deployed or connected to a remote Git repository.
 
 Tool telemetry is disabled in Next.js dev/build/start and Wrangler scripts.

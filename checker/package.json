@@ -9,7 +9,8 @@
     "types": "WRANGLER_SEND_METRICS=false wrangler types",
     "lint": "biome lint . --error-on-warnings",
     "typecheck": "npm run types && tsc --noEmit",
-    "test": "vitest run --passWithNoTests"
+    "test": "vitest run",
+    "test:runtime": "node scripts/verify-ssrf-runtime.mjs"
   },
   "devDependencies": {
     "wrangler": "4.156.0"
