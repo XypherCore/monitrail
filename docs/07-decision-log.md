@@ -19,6 +19,12 @@ first, then the code.
   `--border-strong`.
 
 ## Adopted
+- **Source release**: private during development, open source at deployment
+  in Phase 11. Hosted signups remain invite-only through dogfood.
+- **Phase 3b**: the owner approved the delta report. Use a fresh disposable
+  Supabase target with synthetic fixtures and preserve the existing Neon
+  database. The approved report records the auth compatibility and SSRF
+  scope gates.
 - **SSRF transport**: one guard, two profiles. Web profile validates the
   address at connect time, never follows redirects, fails closed. Slack and
   Discord URLs are host-allowlisted. Worker rebinding risk is documented,
@@ -76,6 +82,6 @@ first, then the code.
 1. Database: Supabase Free (default) or Neon Launch (about $19/month at 0.25
    CU always-on, verify).
 2. Hosting plan and commercial status (doc 02, "Hosting terms").
-3. Repo visibility and domain (defaults in doc 01).
+3. Open-source license and domain (see doc 01).
 4. Global monitor cap: replaced by the phase 5 measurement.
 5. Whether the Worker moves to the paid plan if CPU per tick exceeds 10 ms.

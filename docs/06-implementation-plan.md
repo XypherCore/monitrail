@@ -37,11 +37,14 @@ Status legend: [ ] open, [~] in progress, [x] done
   IPs, IPv4-mapped IPv6, odd IP encodings, userinfo, bad ports, DNS errors
   fail closed, redirects to private targets, redirect limits, subdomain block
   matching) and passes.
-- [ ] **Phase 3b: Align to rev 2 (one-time, only if phases 0 to 3 were built
+- [~] **Phase 3b: Align to rev 2 (one-time, only if phases 0 to 3 were built
   from rev 1 docs).** Produce a delta report (built vs docs 02 and 05), get
   owner approval, migrate schema and code, extend the guard.
   Done when: the delta report is empty and all earlier "Done when" lines
   pass again.
+  Owner approved the [delta report](phase-3b-delta-report.md).
+  See the [Phase 3b verification log](phase-3b-verification.md) for evidence
+  and the remaining live OAuth check.
 - [ ] **Phase 4: Monitor CRUD.** Create, edit, pause, resume, delete with
   config_rev semantics, atomic quotas (user, global, per-host), blocklist,
   canonical host, rate limits, plain-language rejection reasons.
@@ -104,7 +107,8 @@ Status legend: [ ] open, [~] in progress, [x] done
 
 ## Proof milestone
 - [ ] **Phase 11: Deploy and dogfood.** Production environment, owner
-  decisions on hosting and database recorded, invite-only signups. Monitor
+  decisions on hosting, database and open-source license recorded, public
+  source release at deployment, invite-only signups. Monitor
   Jumeirah Fashion, the Aelvon portfolio and Monitrail itself for 14
   consecutive days.
   Done when: zero false incidents (each incident reviewed by hand); missed

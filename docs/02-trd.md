@@ -287,6 +287,11 @@ ABUSE_CONTACT_EMAIL, SIGNUP_MODE.
 Checker: APP_URL, INTERNAL_HMAC_SECRET.
 Keep `.env.example` with names only.
 
+Database administration uses MIGRATION_DATABASE_URL with a direct or
+session-pooler connection. Keep it out of the hosted web runtime. The app
+uses DATABASE_URL with the transaction pooler. DATABASE_CA_FILE optionally
+points to the provider CA when it is needed for TLS verification.
+
 ## Folder structure
 ```
 monitrail/  AGENTS.md  docs/  web/  checker/  shared/

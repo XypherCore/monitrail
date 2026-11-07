@@ -1,10 +1,14 @@
 import { getCurrentDataAccess, requireUser } from "../../../auth/session";
+import { displayMonitorUrl } from "../../../data/display-url";
 
 const statusLabels = {
 	up: "Up",
 	down: "Down",
 	pending: "Pending",
 	paused: "Paused",
+	confirming: "Confirming",
+	blocked: "Blocked",
+	unknown: "Unknown",
 };
 
 export default async function DashboardPage() {
@@ -46,7 +50,7 @@ export default async function DashboardPage() {
 							<li className="monitor-row" key={monitor.id}>
 								<div className="monitor-description">
 									<p className="monitor-name">{monitor.name}</p>
-									<p className="monitor-url">{monitor.url}</p>
+									<p className="monitor-url">{displayMonitorUrl(monitor.url)}</p>
 								</div>
 								<span className={`status status-${monitor.status}`}>
 									<span className="status-dot" aria-hidden="true" />

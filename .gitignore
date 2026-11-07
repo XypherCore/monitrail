@@ -16,6 +16,7 @@ worker-configuration.d.ts
 !.env.example
 .dev.vars
 .dev.vars.*
+.certs/
 *.pem
 *.key
 *.log

@@ -13,15 +13,13 @@ try {
     env.AUTH_SECRET = randomBytes(32).toString("base64url");
     // Validate all owner-provided values before writing any secret.
     readAuthConfig(env);
-    if (!env.DATABASE_URL) throw new Error("Database configuration required.");
     await writeFile(path, `${existing}${existing.endsWith("\n") ? "" : "\n"}AUTH_SECRET=${env.AUTH_SECRET}\n`, { mode: 0o600 });
   } else {
     readAuthConfig(env);
-    if (!env.DATABASE_URL) throw new Error("Database configuration required.");
   }
   await chmod(path, 0o600);
-  console.log("Phase 2 configuration is present and valid; secret values were not displayed. Local credentials are owner-readable only.");
+  console.log("OAuth configuration is valid. Local credentials are owner-readable only.");
 } catch {
-  console.error("Phase 2 configuration check failed. Check the required local settings; no credential values were displayed.");
+  console.error("OAuth configuration check failed. Check the required local settings.");
   process.exitCode = 1;
 }

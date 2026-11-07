@@ -2,26 +2,35 @@
 
 ## SSRF guard
 
-Import `createMonitoringGuard` from `ssrf/index.ts` in server or Worker code.
-Pass the native runtime fetch, the application-controlled
-`Monitrail/1.0 (+{APP_URL}/bot)` identity and an authoritative
-`isBlockedHost(host, { signal })` lookup. Use `canonicalHostname` for hostname
-keys in that lookup. A failed lookup or a result other than a boolean blocks
-the request. The guard calls the lookup for every requested hostname,
-including on each redirect.
+Import shared static policy and the Worker profile from `ssrf/index.ts`.
+`parseTarget` applies the monitor or webhook policy and returns a canonical
+URL. `parseWebhookTarget` also checks the approved Slack and Discord URL
+forms. `canonicalPolicyHost` produces exact-host policy keys, including one
+key for plain and mapped IPv4 addresses.
 
-- `validate(url)` checks URL policy, the blocklist and both DNS families for a
-  hostname. It returns a canonical URL without contacting the target.
-- `check(url)` runs those checks again on the initial URL and each redirect.
-  It returns only `{ statusCode }`. Failures use a fixed `SsrfError` code and
-  message, without the target URL or dependency errors.
+`prepareBlocklist` compiles a trusted claim snapshot once per batch. Exact
+matches always block. An entry with `includeSubdomains` also blocks
+descendants on DNS label boundaries. Invalid snapshot entries throw a fixed
+error, and invalid candidate names block.
 
-The entry point fixes DoH to Cloudflare's DNS JSON endpoint and applies a
-shared 10-second deadline and 64 KiB byte-read cap to a check. The lookup
-must honor the provided signal. Keep target requests inside the guard and
-do not pass user-controlled headers, credentials or fetch adapters to it.
+Create a Worker guard with `createWorkerGuard({appUrl, blocklist, fetch})`.
+Pass the configured application origin, authenticated blocklist snapshot and
+native fetch. `check(url)` returns HTTP status, response-header latency and
+redirect count, or an allowlisted error category and redirect count. The
+server determines success using the claimed expected-status snapshot.
 
-Workers resolve the target again at fetch time. A DNS change between DoH
-validation and connection can still permit rebinding. See the
-[Phase 3 verification log](../docs/phase-3-verification.md) for evidence and
-the request budget that Phase 5 must validate.
+The Worker profile uses no DNS subrequests. It revalidates static rules and
+the blocklist before each target connection, follows at most two redirects,
+uses one ten-second deadline and reads at most 64 KiB through a bounded byte
+reader. Body cleanup failures preserve the measured final headers. Target
+bodies, headers and raw error text never escape the guard.
+
+The Node profile lives under the web application's server-side SSRF module.
+It validates DNS at admission and validates the address at connection time
+for actual requests. Keep monitored-target and webhook requests inside the
+appropriate guard, and pass only application-controlled adapters and policy.
+
+Worker fetch resolves hostnames independently. Static validation cannot
+prevent a public-looking target or redirect hostname from resolving
+privately. Phase 5 verifies the deployed egress boundary and request budget.
+The [Phase 3b report](../docs/phase-3b-delta-report.md) records this gate.

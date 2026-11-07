@@ -25,28 +25,61 @@ describe("ownership data-access layer against PostgreSQL migrations", () => {
   beforeAll(async () => {
     client = new PGlite();
     db = drizzle(client);
-    await migrate(db, { migrationsFolder: fileURLToPath(new URL("../../drizzle", import.meta.url)) });
+    await migrate(db, {
+      migrationsFolder: fileURLToPath(new URL("../../drizzle-rev2", import.meta.url)),
+    });
   }, 30_000);
 
   beforeEach(async () => {
     // This database is private in-memory PostgreSQL, never DATABASE_URL.
     await client.exec("TRUNCATE users RESTART IDENTITY CASCADE");
-    await client.query("INSERT INTO users(id,email,name) VALUES($1,'owner-a@example.invalid','Fixture A'),($2,'owner-b@example.invalid','Fixture B')", [ownerA, ownerB]);
-    await client.query("INSERT INTO monitors(id,user_id,name,url) VALUES($1,$2,'Monitor A','https://a.example.invalid'),($3,$4,'Monitor B','https://b.example.invalid')", [monitorA, ownerA, monitorB, ownerB]);
+    await client.query(
+      "INSERT INTO users(id,email,name) VALUES($1,'owner-a@example.invalid','Fixture A'),($2,'owner-b@example.invalid','Fixture B')",
+      [ownerA, ownerB],
+    );
+    await client.query(
+      "INSERT INTO monitors(id,user_id,name,url,host,created_at,last_checked_at) VALUES($1,$2,'Monitor A','https://a.example.invalid','a.example.invalid',$5,$5),($3,$4,'Monitor B','https://b.example.invalid','b.example.invalid',$5,$5)",
+      [monitorA, ownerA, monitorB, ownerB, clock],
+    );
     // Dummy bytes exercise redaction/ownership, not encryption implementation.
-    await client.query("INSERT INTO alert_channels(id,user_id,type,label,config_encrypted) VALUES($1,$2,'webhook','Channel A',decode('deadbeef','hex')),($3,$4,'webhook','Channel B',decode('deadbeef','hex'))", [channelA, ownerA, channelB, ownerB]);
-    await client.query("INSERT INTO status_pages(id,user_id,slug,title) VALUES($1,$2,'owner-a','Page A'),($3,$4,'owner-b','Page B')", [pageA, ownerA, pageB, ownerB]);
-    await client.query("INSERT INTO incidents(id,monitor_id,user_id,started_at,cause) VALUES($1,$2,$3,$4,'timeout'),($5,$6,$7,$4,'dns')", [incidentA, monitorA, ownerA, clock, incidentB, monitorB, ownerB]);
-    for (const [userId, monitorId, channelId, pageId, incidentId] of [[ownerA, monitorA, channelA, pageA, incidentA], [ownerB, monitorB, channelB, pageB, incidentB]]) {
-      await client.query("INSERT INTO checks(monitor_id,checked_at,ok,status_code,response_ms) VALUES($1,$2,true,200,42)", [monitorId, clock]);
-      await client.query("INSERT INTO check_rollups_hourly(monitor_id,hour,total,failed,avg_ms,p95_ms,max_ms) VALUES($1,$2,1,0,42,42,42)", [monitorId, clock]);
-      await client.query("INSERT INTO monitor_alert_channels(user_id,monitor_id,channel_id) VALUES($1,$2,$3)", [userId, monitorId, channelId]);
-      await client.query("INSERT INTO status_page_monitors(user_id,status_page_id,monitor_id) VALUES($1,$2,$3)", [userId, pageId, monitorId]);
-      await client.query("INSERT INTO alert_events(incident_id,channel_id,user_id,kind) VALUES($1,$2,$3,'down')", [incidentId, channelId, userId]);
+    await client.query(
+      "INSERT INTO alert_channels(id,user_id,type,label,config_enc,is_verified) VALUES($1,$2,'webhook','Channel A','fixture-envelope',true),($3,$4,'webhook','Channel B','fixture-envelope',true)",
+      [channelA, ownerA, channelB, ownerB],
+    );
+    await client.query(
+      "INSERT INTO status_pages(id,user_id,slug,title) VALUES($1,$2,'owner-a','Page A'),($3,$4,'owner-b','Page B')",
+      [pageA, ownerA, pageB, ownerB],
+    );
+    await client.query(
+      "INSERT INTO incidents(id,monitor_id,user_id,started_at,confirmed_at,cause) VALUES($1,$2,$3,$4,$4,'timeout'),($5,$6,$7,$4,$4,'dns')",
+      [incidentA, monitorA, ownerA, clock, incidentB, monitorB, ownerB],
+    );
+    for (const [userId, monitorId, channelId, pageId, incidentId] of [
+      [ownerA, monitorA, channelA, pageA, incidentA],
+      [ownerB, monitorB, channelB, pageB, incidentB],
+    ]) {
+      await client.query(
+        "INSERT INTO checks(attempt_id,monitor_id,config_rev,checked_at,ok,status_code,response_ms) VALUES($1,$1,1,$2,true,200,42)",
+        [monitorId, clock],
+      );
+      await client.query(
+        "INSERT INTO monitor_alert_channels(user_id,monitor_id,channel_id) VALUES($1,$2,$3)",
+        [userId, monitorId, channelId],
+      );
+      await client.query(
+        "INSERT INTO status_page_monitors(user_id,status_page_id,monitor_id) VALUES($1,$2,$3)",
+        [userId, pageId, monitorId],
+      );
+      await client.query(
+        "INSERT INTO alert_outbox(incident_id,channel_id,user_id,kind,dedupe_key,payload) VALUES($1,$2,$3,'down',$1::uuid::text || ':' || $2::uuid::text || ':down','{}')",
+        [incidentId, channelId, userId],
+      );
     }
   });
 
-  afterAll(async () => { await client?.close(); });
+  afterAll(async () => {
+    await client?.close();
+  });
 
   it("rejects a missing or malformed actor before issuing any query", () => {
     const execute = vi.fn();
@@ -57,11 +90,15 @@ describe("ownership data-access layer against PostgreSQL migrations", () => {
   });
 
   it("filters all lists and direct object reads by the authenticated owner", async () => {
-    const own = createDataAccess(db, ownerA);
-    expect((await own.listMonitors()).map(row => row.id)).toEqual([monitorA]);
-    expect((await own.listChannels()).map(row => row.id)).toEqual([channelA]);
-    expect((await own.listStatusPages()).map(row => row.id)).toEqual([pageA]);
-    expect(await own.getMonitor(monitorA)).toMatchObject({ id: monitorA, name: "Monitor A", url: "https://a.example.invalid" });
+    const own = createDataAccess(db, ownerA, () => clock);
+    expect((await own.listMonitors()).map((row) => row.id)).toEqual([monitorA]);
+    expect((await own.listChannels()).map((row) => row.id)).toEqual([channelA]);
+    expect((await own.listStatusPages()).map((row) => row.id)).toEqual([pageA]);
+    expect(await own.getMonitor(monitorA)).toMatchObject({
+      id: monitorA,
+      name: "Monitor A",
+      url: "https://a.example.invalid/",
+    });
     expect(await own.getChannel(channelA)).toMatchObject({ id: channelA, label: "Channel A" });
     expect(await own.getStatusPage(pageA)).toMatchObject({ id: pageA, title: "Page A" });
     expect(await own.getIncident(incidentA)).toMatchObject({ id: incidentA, cause: "timeout" });
@@ -73,78 +110,80 @@ describe("ownership data-access layer against PostgreSQL migrations", () => {
     expect(await own.getChannel(missing)).toBeNull();
     expect(await own.getIncident(missing)).toBeNull();
     expect(await own.getStatusPage(missing)).toBeNull();
-    expect((await createDataAccess(db, ownerB).listMonitors()).map(row => row.id)).toEqual([monitorB]);
+    expect(
+      (await createDataAccess(db, ownerB, () => clock).listMonitors()).map((row) => row.id),
+    ).toEqual([monitorB]);
   });
 
-  it.each(["monitor", "channel", "incident", "page"] as const)("blocks cross-user %s edits while allowing an owned edit", async resource => {
-    const a = createDataAccess(db, ownerA);
-    const b = createDataAccess(db, ownerB);
-    if (resource === "monitor") {
-      expect(await a.renameMonitor(monitorB, "Foreign edit")).toBe(false);
-      expect((await b.getMonitor(monitorB))?.name).toBe("Monitor B");
-      expect(await a.renameMonitor(monitorA, "Owned edit")).toBe(true);
-      expect((await a.getMonitor(monitorA))?.name).toBe("Owned edit");
-    } else if (resource === "channel") {
-      expect(await a.renameChannel(channelB, "Foreign edit")).toBe(false);
-      expect((await b.getChannel(channelB))?.label).toBe("Channel B");
-      expect(await a.renameChannel(channelA, "Owned edit")).toBe(true);
-      expect((await a.getChannel(channelA))?.label).toBe("Owned edit");
-    } else if (resource === "incident") {
-      const resolvedAt = new Date(clock.getTime() + 60_000);
-      expect(await a.resolveIncident(incidentB, resolvedAt)).toBe(false);
-      expect((await b.getIncident(incidentB))?.resolvedAt).toBeNull();
-      expect(await a.resolveIncident(incidentA, resolvedAt)).toBe(true);
-      expect((await a.getIncident(incidentA))?.resolvedAt).toEqual(resolvedAt);
-    } else {
-      expect(await a.renameStatusPage(pageB, "Foreign edit")).toBe(false);
-      expect((await b.getStatusPage(pageB))?.title).toBe("Page B");
-      expect(await a.renameStatusPage(pageA, "Owned edit")).toBe(true);
-      expect((await a.getStatusPage(pageA))?.title).toBe("Owned edit");
-    }
-  });
+  it.each(["monitor", "channel", "page"] as const)(
+    "blocks cross-user %s edits while allowing an owned edit",
+    async (resource) => {
+      const a = createDataAccess(db, ownerA, () => clock);
+      const b = createDataAccess(db, ownerB, () => clock);
+      if (resource === "monitor") {
+        expect(await a.renameMonitor(monitorB, "Foreign edit")).toBe(false);
+        expect((await b.getMonitor(monitorB))?.name).toBe("Monitor B");
+        expect(await a.renameMonitor(monitorA, "Owned edit")).toBe(true);
+        expect((await a.getMonitor(monitorA))?.name).toBe("Owned edit");
+      } else if (resource === "channel") {
+        expect(await a.renameChannel(channelB, "Foreign edit")).toBe(false);
+        expect((await b.getChannel(channelB))?.label).toBe("Channel B");
+        expect(await a.renameChannel(channelA, "Owned edit")).toBe(true);
+        expect((await a.getChannel(channelA))?.label).toBe("Owned edit");
+      } else {
+        expect(await a.renameStatusPage(pageB, "Foreign edit")).toBe(false);
+        expect((await b.getStatusPage(pageB))?.title).toBe("Page B");
+        expect(await a.renameStatusPage(pageA, "Owned edit")).toBe(true);
+        expect((await a.getStatusPage(pageA))?.title).toBe("Owned edit");
+      }
+    },
+  );
 
-  it.each(["monitor", "channel", "incident", "page"] as const)("blocks cross-user %s deletion while allowing owned deletion", async resource => {
-    const a = createDataAccess(db, ownerA);
-    const b = createDataAccess(db, ownerB);
-    if (resource === "monitor") {
-      expect(await a.deleteMonitor(monitorB)).toBe(false);
-      expect(await b.getMonitor(monitorB)).not.toBeNull();
-      expect(await a.deleteMonitor(monitorA)).toBe(true);
-      expect(await a.getMonitor(monitorA)).toBeNull();
-    } else if (resource === "channel") {
-      expect(await a.deleteChannel(channelB)).toBe(false);
-      expect(await b.getChannel(channelB)).not.toBeNull();
-      expect(await a.deleteChannel(channelA)).toBe(true);
-      expect(await a.getChannel(channelA)).toBeNull();
-    } else if (resource === "incident") {
-      expect(await a.deleteIncident(incidentB)).toBe(false);
-      expect(await b.getIncident(incidentB)).not.toBeNull();
-      expect(await a.deleteIncident(incidentA)).toBe(true);
-      expect(await a.getIncident(incidentA)).toBeNull();
-    } else {
-      expect(await a.deleteStatusPage(pageB)).toBe(false);
-      expect(await b.getStatusPage(pageB)).not.toBeNull();
-      expect(await a.deleteStatusPage(pageA)).toBe(true);
-      expect(await a.getStatusPage(pageA)).toBeNull();
-    }
-  });
+  it.each(["monitor", "channel", "incident", "page"] as const)(
+    "blocks cross-user %s deletion while allowing owned deletion",
+    async (resource) => {
+      const a = createDataAccess(db, ownerA, () => clock);
+      const b = createDataAccess(db, ownerB, () => clock);
+      if (resource === "monitor") {
+        expect(await a.deleteMonitor(monitorB)).toBe(false);
+        expect(await b.getMonitor(monitorB)).not.toBeNull();
+        expect(await a.deleteMonitor(monitorA)).toBe(true);
+        expect(await a.getMonitor(monitorA)).toBeNull();
+      } else if (resource === "channel") {
+        expect(await a.deleteChannel(channelB)).toBe(false);
+        expect(await b.getChannel(channelB)).not.toBeNull();
+        expect(await a.deleteChannel(channelA)).toBe(true);
+        expect(await a.getChannel(channelA)).toBeNull();
+      } else if (resource === "incident") {
+        expect(await a.deleteIncident(incidentB)).toBe(false);
+        expect(await b.getIncident(incidentB)).not.toBeNull();
+        expect(await a.deleteIncident(incidentA)).toBe(true);
+        expect(await a.getIncident(incidentA)).toBeNull();
+      } else {
+        expect(await a.deleteStatusPage(pageB)).toBe(false);
+        expect(await b.getStatusPage(pageB)).not.toBeNull();
+        expect(await a.deleteStatusPage(pageA)).toBe(true);
+        expect(await a.getStatusPage(pageA)).toBeNull();
+      }
+    },
+  );
 
   it("filters child histories and associations through owned parent rows", async () => {
-    const a = createDataAccess(db, ownerA);
-    for (const list of [a.listChecks, a.listRollups, a.listIncidents, a.listMonitorChannels]) {
+    const a = createDataAccess(db, ownerA, () => clock);
+    for (const list of [a.listChecks, a.listIncidents, a.listMonitorChannels]) {
       expect(await list(monitorA)).toHaveLength(1);
       expect(await list(monitorB)).toEqual([]);
       expect(await list(missing)).toEqual([]);
     }
     expect(await a.listPageMonitors(pageA)).toHaveLength(1);
     expect(await a.listPageMonitors(pageB)).toEqual([]);
-    expect(await a.listAlertEvents(incidentA)).toHaveLength(1);
-    expect(await a.listAlertEvents(incidentB)).toEqual([]);
+    expect(await a.listAlertOutbox(incidentA)).toHaveLength(1);
+    expect(await a.listAlertOutbox(incidentB)).toEqual([]);
   });
 
   it("scopes relationship edits to the owner in the modifying statement", async () => {
-    const a = createDataAccess(db, ownerA);
-    const b = createDataAccess(db, ownerB);
+    const a = createDataAccess(db, ownerA, () => clock);
+    const b = createDataAccess(db, ownerB, () => clock);
     expect(await a.setPageMonitorVisibility(pageB, monitorB, true)).toBe(false);
     expect(await a.setPageMonitorVisibility(pageA, monitorB, true)).toBe(false);
     expect(await a.unlinkPageMonitor(pageB, monitorB)).toBe(false);
@@ -161,20 +200,44 @@ describe("ownership data-access layer against PostgreSQL migrations", () => {
   });
 
   it("returns explicit DTOs with no encrypted config, account tokens or owner IDs", async () => {
-    const a = createDataAccess(db, ownerA);
+    const a = createDataAccess(db, ownerA, () => clock);
     const channel = await a.getChannel(channelA);
-    expect(Object.keys(channel ?? {}).sort()).toEqual(["createdAt", "id", "isVerified", "label", "type"]);
-    expect((await a.listMonitorChannels(monitorA))[0]).toMatchObject({ id: channelA, label: "Channel A" });
-    const data = JSON.stringify([await a.listChannels(), await a.listMonitorChannels(monitorA), await a.listAlertEvents(incidentA)]);
-    for (const secretField of ["config_encrypted", "configEncrypted", "deadbeef", "accessToken", "refreshToken", "password", "userId", "user_id"]) {
+    expect(Object.keys(channel ?? {}).sort()).toEqual([
+      "createdAt",
+      "id",
+      "isVerified",
+      "label",
+      "type",
+    ]);
+    expect((await a.listMonitorChannels(monitorA))[0]).toMatchObject({
+      id: channelA,
+      label: "Channel A",
+    });
+    const data = JSON.stringify([
+      await a.listChannels(),
+      await a.listMonitorChannels(monitorA),
+      await a.listAlertOutbox(incidentA),
+    ]);
+    for (const secretField of [
+      "config_enc",
+      "configEnc",
+      "fixture-envelope",
+      "accessToken",
+      "refreshToken",
+      "password",
+      "userId",
+      "user_id",
+    ]) {
       expect(data).not.toContain(secretField);
     }
   });
 
   it("rejects malformed object IDs, invalid paging and non-text edits generically", async () => {
-    const a = createDataAccess(db, ownerA);
+    const a = createDataAccess(db, ownerA, () => clock);
     await expect(a.getMonitor("' OR true--")).rejects.toThrow(DataAccessError);
-    await expect(a.renameMonitor(monitorA, { userId: ownerB } as unknown as string)).rejects.toThrow(DataAccessError);
+    await expect(
+      a.renameMonitor(monitorA, { userId: ownerB } as unknown as string),
+    ).rejects.toThrow(DataAccessError);
     await expect(a.listMonitors({ limit: 0 })).rejects.toThrow(DataAccessError);
     await expect(a.listMonitors({ limit: 101 })).rejects.toThrow(DataAccessError);
     await expect(a.listMonitors({ offset: -1 })).rejects.toThrow(DataAccessError);
@@ -182,26 +245,178 @@ describe("ownership data-access layer against PostgreSQL migrations", () => {
   });
 
   it("uses stable bounded pagination without widening ownership", async () => {
-    await client.query("INSERT INTO monitors(user_id,name,url) VALUES($1,'Monitor A','https://second.example.invalid')", [ownerA]);
-    const a = createDataAccess(db, ownerA);
+    await client.query(
+      "INSERT INTO monitors(user_id,name,url,host) VALUES($1,'Monitor A','https://second.example.invalid','second.example.invalid')",
+      [ownerA],
+    );
+    const a = createDataAccess(db, ownerA, () => clock);
     const first = await a.listMonitors({ limit: 1 });
     const second = await a.listMonitors({ limit: 1, offset: 1 });
     expect(first).toHaveLength(1);
     expect(second).toHaveLength(1);
     expect(first[0]?.id).not.toBe(second[0]?.id);
-    expect([...first, ...second].every(row => row.id !== monitorB)).toBe(true);
+    expect([...first, ...second].every((row) => row.id !== monitorB)).toBe(true);
     const all = await a.listMonitors();
-    expect(all.map(row => row.id)).toEqual([...first, ...second].map(row => row.id));
+    expect(all.map((row) => row.id)).toEqual([...first, ...second].map((row) => row.id));
   });
 
   it("does not surface raw database exceptions or credential-like values", async () => {
-    const access = createDataAccess({ execute: async () => { throw new Error("postgresql://fixture:do-not-leak@private.example.invalid/db"); } }, ownerA);
+    const access = createDataAccess(
+      {
+        execute: async () => {
+          throw new Error("postgresql://fixture:do-not-leak@private.example.invalid/db");
+        },
+      },
+      ownerA,
+    );
     await expect(access.listMonitors()).rejects.toThrow("Data access failed.");
-    try { await access.listMonitors(); }
-    catch (error) {
+    try {
+      await access.listMonitors();
+    } catch (error) {
       expect(error).toBeInstanceOf(DataAccessError);
       expect(String(error)).not.toContain("do-not-leak");
       expect(error).not.toHaveProperty("cause");
     }
+  });
+
+  it("masks query credentials in every monitor DTO and derives display-only states", async () => {
+    const access = createDataAccess(db, ownerA, () => clock);
+    await client.query(
+      "UPDATE monitors SET url='https://a.example.invalid/health?key=fixture-private#fragment',status='up' WHERE id=$1",
+      [monitorA],
+    );
+    expect((await access.getMonitor(monitorA))?.url).toBe("https://a.example.invalid/health?…");
+    expect(JSON.stringify(await access.listMonitors())).not.toContain("fixture-private");
+    expect((await access.getMonitor(monitorA))?.status).toBe("up");
+    await client.query("UPDATE monitors SET failures=1 WHERE id=$1", [monitorA]);
+    expect((await access.getMonitor(monitorA))?.status).toBe("confirming");
+    await client.query("UPDATE monitors SET status='down',failures=0,successes=1 WHERE id=$1", [
+      monitorA,
+    ]);
+    expect((await access.getMonitor(monitorA))?.status).toBe("confirming");
+    await client.query("UPDATE monitors SET last_checked_at=$1 WHERE id=$2", [
+      new Date(clock.getTime() - 901000),
+      monitorA,
+    ]);
+    expect((await access.getMonitor(monitorA))?.status).toBe("unknown");
+    await client.query(
+      "UPDATE monitors SET is_paused=true,pause_reason='blocked_host' WHERE id=$1",
+      [monitorA],
+    );
+    expect((await access.getMonitor(monitorA))?.status).toBe("blocked");
+    await client.query("UPDATE monitors SET pause_reason='user' WHERE id=$1", [monitorA]);
+    expect((await access.getMonitor(monitorA))?.status).toBe("paused");
+    expect(access).not.toHaveProperty("resolveIncident");
+    expect(access).not.toHaveProperty("listRollups");
+  });
+
+  it("shows first-result Pending until ten minutes, then Unknown", async () => {
+    await client.query(
+      "UPDATE monitors SET status='up',created_at=$1,last_checked_at=NULL WHERE id=$2",
+      [clock, monitorA],
+    );
+    expect((await createDataAccess(db, ownerA, () => clock).getMonitor(monitorA))?.status).toBe(
+      "pending",
+    );
+    const stale = new Date(clock.getTime() + 600000);
+    expect((await createDataAccess(db, ownerA, () => stale).getMonitor(monitorA))?.status).toBe(
+      "unknown",
+    );
+  });
+
+  it("preserves a visibility edit when replacing the same owned page links concurrently", async () => {
+    const access = createDataAccess(db, ownerA, () => clock);
+    expect(
+      await Promise.all([
+        access.setPageMonitorVisibility(pageA, monitorA, true),
+        access.replacePageMonitors(pageA, [monitorA]),
+      ]),
+    ).toEqual([true, true]);
+    expect(await access.listPageMonitors(pageA)).toMatchObject([
+      { monitorId: monitorA, showUrl: true },
+    ]);
+    expect(await access.setPageMonitorVisibility(pageA, monitorB, true)).toBe(false);
+    expect(await access.setPageMonitorVisibility(pageB, monitorA, true)).toBe(false);
+  });
+
+  it("attaches only owned channels and performs replacement atomically", async () => {
+    const access = createDataAccess(db, ownerA, () => clock);
+    expect(await access.attachMonitorChannel(monitorB, channelA)).toBe(false);
+    expect(await access.attachMonitorChannel(monitorA, channelB)).toBe(false);
+    expect(await access.replaceMonitorChannels(monitorB, [channelA])).toBe(false);
+    expect(await access.replaceMonitorChannels(monitorA, [channelB])).toBe(false);
+    expect((await access.listMonitorChannels(monitorA)).map((channel) => channel.id)).toEqual([
+      channelA,
+    ]);
+    expect(await access.replaceMonitorChannels(monitorA, [])).toBe(true);
+    expect(await access.listMonitorChannels(monitorA)).toEqual([]);
+    expect(await access.attachMonitorChannel(monitorA, channelA)).toBe(true);
+    expect(await access.attachMonitorChannel(monitorA, channelA)).toBe(true);
+    expect(await access.listMonitorChannels(monitorA)).toHaveLength(1);
+    expect(await access.replaceMonitorChannels(monitorA, [channelA])).toBe(true);
+    expect(await access.attachMonitorChannel(monitorA.toUpperCase(), channelA.toUpperCase())).toBe(
+      true,
+    );
+    await expect(
+      access.replaceMonitorChannels(monitorA, [channelA, channelA.toUpperCase()]),
+    ).rejects.toThrow(DataAccessError);
+  });
+
+  it("attaches and replaces only owned page monitors while preserving visibility on retained links", async () => {
+    const access = createDataAccess(db, ownerA, () => clock);
+    expect(await access.attachPageMonitor(pageB, monitorA)).toBe(false);
+    expect(await access.attachPageMonitor(pageA, monitorB)).toBe(false);
+    expect(await access.replacePageMonitors(pageB, [monitorA])).toBe(false);
+    expect(await access.replacePageMonitors(pageA, [monitorB])).toBe(false);
+    expect((await access.listPageMonitors(pageA)).map((monitor) => monitor.monitorId)).toEqual([
+      monitorA,
+    ]);
+    expect(await access.setPageMonitorVisibility(pageA, monitorA, true)).toBe(true);
+    expect(await access.replacePageMonitors(pageA, [monitorA])).toBe(true);
+    expect((await access.listPageMonitors(pageA))[0]?.showUrl).toBe(true);
+    expect(await access.replacePageMonitors(pageA.toUpperCase(), [monitorA.toUpperCase()])).toBe(
+      true,
+    );
+    expect((await access.listPageMonitors(pageA))[0]?.showUrl).toBe(true);
+    expect(await access.replacePageMonitors(pageA, [])).toBe(true);
+    expect(await access.attachPageMonitor(pageA, monitorA)).toBe(true);
+    expect((await access.listPageMonitors(pageA))[0]?.showUrl).toBe(false);
+  });
+
+  it("prevents foreign publication and publication without any monitor", async () => {
+    const access = createDataAccess(db, ownerA, () => clock);
+    expect(await access.setStatusPagePublished(pageB, true)).toBe(false);
+    expect(
+      (await createDataAccess(db, ownerB, () => clock).getStatusPage(pageB))?.isPublished,
+    ).toBe(false);
+    expect(await access.setStatusPagePublished(pageA, true)).toBe(true);
+    expect((await access.getStatusPage(pageA))?.isPublished).toBe(true);
+    expect(await access.setStatusPagePublished(pageA, false)).toBe(true);
+    expect(await access.replacePageMonitors(pageA, [])).toBe(true);
+    expect(await access.setStatusPagePublished(pageA, true)).toBe(false);
+  });
+
+  it("bounds page associations atomically during competing requests", async () => {
+    const access = createDataAccess(db, ownerA, () => clock);
+    // Administrative fixtures isolate the page cap independently of monitor admission.
+    const ids: string[] = [monitorA];
+    for (let index = 0; index < 10; index++) {
+      const added = await client.query<{ id: string }>(
+        "INSERT INTO monitors(user_id,name,url,host) VALUES($1,'Fixture','https://fixture.example.invalid','fixture.example.invalid') RETURNING id",
+        [ownerA],
+      );
+      ids.push(added.rows[0].id);
+    }
+    expect(await access.replacePageMonitors(pageA, ids.slice(0, 9))).toBe(true);
+    const attempts = await Promise.allSettled(
+      ids.slice(9).map((id) => access.attachPageMonitor(pageA, id)),
+    );
+    expect(attempts.filter((result) => result.status === "fulfilled" && result.value)).toHaveLength(
+      1,
+    );
+    expect(attempts.filter((result) => result.status === "rejected")).toHaveLength(1);
+    expect(await access.listPageMonitors(pageA)).toHaveLength(10);
+    await expect(access.replacePageMonitors(pageA, ids)).rejects.toThrow(DataAccessError);
+    expect(await access.listPageMonitors(pageA)).toHaveLength(10);
   });
 });

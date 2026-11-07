@@ -1,5 +1,6 @@
 import Link from "next/link";
 import type { ReactNode } from "react";
+import { identity } from "../../../../shared/identity";
 import { requireUser } from "../../auth/session";
 import { AppNavigation } from "../../components/app-navigation";
 import { SessionRefresh } from "../../components/session-refresh";
@@ -22,9 +23,9 @@ export default async function ProtectedLayout({
 			<aside className="app-sidebar">
 				<Link className="wordmark" href="/dashboard">
 					<span className="brand-mark" aria-hidden="true">
-						m
+						{identity.monogram}
 					</span>
-					Monitrail
+					{identity.brandName}
 				</Link>
 				<AppNavigation />
 			</aside>
@@ -33,9 +34,9 @@ export default async function ProtectedLayout({
 					<span className="header-label">Workspace</span>
 					<Link className="wordmark mobile-wordmark" href="/dashboard">
 						<span className="brand-mark" aria-hidden="true">
-							m
+							{identity.monogram}
 						</span>
-						Monitrail
+						{identity.brandName}
 					</Link>
 					<div className="header-actions">
 						<span className="account-name">{user.name}</span>

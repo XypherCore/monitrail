@@ -1,9 +1,14 @@
 # Monitrail
 
-Website uptime and performance monitor. Read `AGENTS.md`, then docs 01–06
-in order before making changes. Phases 0 and 1 establish the workspaces and
-database. Phase 2 adds OAuth, protected routes and owner-scoped data access.
-Phase 3 adds the shared SSRF guard for later monitor validation and checking.
+Website uptime and performance monitor. The source will be released as open
+source at deployment. Hosted signups remain invite-only through dogfood.
+
+Read [AGENTS.md](AGENTS.md), then docs 01–07 in order before contributing.
+The [implementation plan](docs/06-implementation-plan.md) tracks current
+work. Phases 0–3 established the initial workspaces, database, OAuth,
+owner-scoped access and SSRF guard. Phase 3b aligns those foundations with
+the revised specifications. The [delta report](docs/phase-3b-delta-report.md)
+records the approved scope.
 
 ## Local setup
 
@@ -43,7 +48,7 @@ Web Vitest tests apply the committed SQL migrations to in-memory PostgreSQL
 (PGlite) and exercise ownership, OAuth/session security, durable auth limiting,
 cascade deletion, incident uniqueness and seed safety. These tests need no
 credentials and never connect to `DATABASE_URL`. Checker tests cover SSRF
-policy, DoH, redirects and request limits. The separate workerd test uses an
+static policy, redirects and request limits. The separate workerd test uses an
 offline fixture Worker to exercise native fetch and byte streams.
 Playwright supplies browser smoke tooling for later application flows.
 
@@ -61,7 +66,7 @@ The production Worker still returns 404 and has no cron triggers, outbound
 requests, bindings or database access.
 Database lifecycle commands are administrative scripts. The server-only auth
 persistence boundary and application DAL are separate. The SSRF guard is
-ready for later integration. See the [Phase 3 verification log](docs/phase-3-verification.md).
+ready for later integration. See the [Phase 3b verification log](docs/phase-3b-verification.md).
 No project has been deployed or connected to a remote Git repository.
 
 Tool telemetry is disabled in Next.js dev/build/start and Wrangler scripts.
@@ -73,55 +78,40 @@ verification results and unresolved decisions for subsequent phases.
 
 ## Database development
 
-The committed Drizzle schema and migrations live in `web/src/db/schema.ts`
-and `web/drizzle/`. Phase 1 uses the documented Better Auth core table shape
-following the TRD's current-documentation exception. Phase 2 maps `user`,
-`account`, `session`, `verification` explicitly and uses UUID generation.
+The active Drizzle schema and SQL migrations are in
+`web/src/db/rev2-schema.ts` and `web/drizzle-rev2/`. Use a fresh,
+disposable Supabase project with the Data API disabled. The original Neon
+migration track is retained for the historical Phase 1 evidence.
 
-Generate migrations offline from the repository root:
+For local setup, put the Transaction pooler URL in `DATABASE_URL` and the
+Session pooler or Direct URL in `MIGRATION_DATABASE_URL` in the ignored
+`web/.env.phase3b.local`. Download the Supabase CA from the dashboard to
+`web/.certs/supabase-ca.crt`. To use another certificate path, set
+`DATABASE_CA_FILE`. See [Supabase connection modes](https://supabase.com/docs/guides/database/connecting-to-postgres)
+and [SSL verification](https://supabase.com/docs/guides/platform/ssl-enforcement).
 
-```sh
-npm run db:generate --workspace web
-```
-
-For a disposable development Neon branch, set `DATABASE_URL` in the ignored
-`web/.env.local`. Never put connection values in an example file, command-line
-arguments, logs or Git. Apply committed migrations and optionally seed:
-
-```sh
-npm run db:migrate --workspace web
-npm run db:seed --workspace web -- --confirm-test-data
-```
-
-The seed is development-only, opt-in, idempotent and non-destructive. It adds
-two fake users, paused monitors, check history, rollups, resolved incidents
-and unpublished status pages using reserved example domains. It creates no
-alert channels, provider tokens or login sessions, and never fetches a target.
-
-For the one-time Phase 1 acceptance check, use a **separate clean Neon branch**
-instead of the migrate/seed sequence above:
+On the fresh test project, run:
 
 ```sh
-npm run db:verify-neon --workspace web -- --confirm-clean-branch
+npm run db:verify-postgres --workspace web
 ```
 
-It refuses a nonempty public schema, applies and replays migrations, verifies
-the one-open-incident constraint inside a rolled-back transaction, and runs
-the seed twice. It leaves only migrations and fake development data behind.
-Raw driver/CLI errors are not printed because they can contain credentials.
-For this Phase 1 branch's already seeded disposable database, the guarded
-`--confirm-existing-fixtures` verification mode checks only the known fake
-dataset, normalizes its original seed timestamps and verifies seed
-idempotency after a simulated clock change. Regression-only edits are rolled
-back; it refuses unrelated or edited fixtures. It does not replace the clean
-branch acceptance check.
-See `docs/phase-1-verification.md` for evidence and remaining decisions.
+This command checks both TLS connections, applies and replays the committed
+migration, seeds two synthetic owners with paused monitors and unpublished
+pages, then creates and verifies the restricted runtime role. It replaces
+the local runtime URL with that role's credential. Keep the administrative
+URL in the ignored local file and use only the restricted connection in
+the hosted web app. Keep connection strings out of commands, logs and Git.
+
+Use `npm run db:generate --workspace web` to generate migrations offline.
+The separate `db:migrate` and `db:seed` commands use the configured admin
+connection. Run the seed only on development fixtures.
 
 ## Authentication development
 
 Set `APP_URL=http://localhost:3000`, provider client IDs/secrets under the
-existing `AUTH_GITHUB_*` and `AUTH_GOOGLE_*` names, and the existing database
-connection in ignored `web/.env.local`. Provider callbacks are
+`AUTH_GITHUB_*` and `AUTH_GOOGLE_*` names, and `SIGNUP_MODE=invite`
+in ignored `web/.env.local`. Provider callbacks are
 `http://localhost:3000/api/auth/callback/github` and
 `http://localhost:3000/api/auth/callback/google`. Use the same origin in the
 browser; the dev/start scripts bind to loopback `localhost`.
@@ -133,11 +123,17 @@ npm run dev --workspace web
 
 Preparation validates settings, generates `AUTH_SECRET` only when missing,
 restricts local-file permissions and never displays values. Production requires
-an HTTPS `APP_URL` and matching provider registrations. Provider accounts need
-a verified email; account linking is disabled. A second provider sharing an
-existing account email is refused rather than merged automatically.
+an HTTPS `APP_URL` and matching provider registrations. Accounts are keyed
+by provider and provider account ID. Email may be absent. A second provider
+with an already registered email receives a message to use the original
+provider.
 
-With the dev server running and the known Phase 1 fake owners present:
+To invite a new user in the disposable development environment, run
+`npm run auth:invite --workspace web`. Open `web/.env.invite.local` locally
+for the single-use code. Remove that ignored file after using the code
+before creating another invite.
+
+With the dev server running and the synthetic Supabase fixture owners present:
 
 ```sh
 npm run auth:verify-local --workspace web -- --confirm-fixture-session
@@ -162,4 +158,4 @@ fixture identity, tests access/ownership/layout/logout, and removes that
 session. It makes no provider or monitored-target requests. Real provider
 consent must be tested separately by an account owner. The credential scanner
 privately compares configured values with Git-eligible files and browser assets.
-See `docs/phase-2-verification.md` for security evidence and limitations.
+See the [Phase 3b verification log](docs/phase-3b-verification.md) for evidence and remaining checks.

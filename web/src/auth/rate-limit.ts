@@ -1,87 +1,98 @@
 import { createHmac } from "node:crypto";
-import type { BetterAuthOptions } from "better-auth/minimal";
+import { isIP } from "node:net";
 import { sql } from "drizzle-orm";
-import type { DataExecutor } from "../data/access.ts";
+import { canonicalPolicyHost } from "../../../shared/ssrf/address.ts";
+import type { AuthDatabase } from "./persistence.ts";
 
-type AuthRateLimitStorage = NonNullable<NonNullable<BetterAuthOptions["rateLimit"]>["customStorage"]>;
+const unavailable = () => new Error("Authentication rate limit unavailable.");
+const oauthStateSeconds = 900; // Auth.js state and PKCE cookie lifetime.
 
-function unavailable(): Error { return new Error("Authentication rate limit unavailable."); }
-
-function bucketIdentity(secret: string, key: string): { id: string; identifier: string } {
-  const digest = createHmac("sha256", secret).update("monitrail:auth-rate:v1\0").update(key).digest();
-  const identifier = `auth-rate:${digest.toString("hex")}`;
-  // UUIDv8 carries application-defined opaque bits; the full HMAC remains in
-  // identifier and must match on conflict, so even a UUID collision fails closed.
-  const bytes = Buffer.from(digest.subarray(0, 16));
-  bytes[6] = (bytes[6] & 0x0f) | 0x80;
-  bytes[8] = (bytes[8] & 0x3f) | 0x80;
-  const value = bytes.toString("hex");
-  return { id: `${value.slice(0, 8)}-${value.slice(8, 12)}-${value.slice(12, 16)}-${value.slice(16, 20)}-${value.slice(20)}`, identifier };
+export function oauthSignInRateKey(
+  headers: Headers,
+  env: Readonly<Record<string, string | undefined>> = process.env,
+) {
+  // Vercel's ingress supplies this header. Vercel CLI development and other
+  // hosts may forward caller-supplied headers, so use the anonymous bucket there.
+  // https://vercel.com/docs/headers/request-headers#x-vercel-forwarded-for
+  const onVercel =
+    env.NODE_ENV === "production" &&
+    env.VERCEL === "1" &&
+    !!env.VERCEL_REGION &&
+    (env.VERCEL_ENV === "production" || env.VERCEL_ENV === "preview");
+  const value = onVercel ? headers.get("x-vercel-forwarded-for") : null;
+  const ip = value && isIP(value) ? canonicalPolicyHost(value) : null;
+  return `${ip ?? "anonymous"}|/sign-in/social`;
 }
 
-/**
- * Privileged pre-auth persistence: no authenticated user exists yet. Only
- * anonymous, exactly namespaced rate records may be touched. Better Auth
- * supplies its default per-path windows/maxima; no product quotas are changed.
- *
- * The consume contract in Better Auth 1.7.15 is atomic. A single PostgreSQL
- * UPSERT locks the bucket while checking/incrementing; get/set would permit
- * concurrent cold starts to bypass the limit. Expiry uses the database clock.
- * The framework's normalized IP/path is HMACed before storage. Reverse-proxy
- * header trust still belongs to the HTTP/runtime integration, not this store.
- */
-export function createAuthRateLimitStorage(db: DataExecutor, secret: string): AuthRateLimitStorage {
+export function createAuthRateLimitStorage(db: AuthDatabase, secret: string) {
   if (typeof secret !== "string" || secret.length < 32) throw unavailable();
+
+  function identity(key: string) {
+    return `auth-rate:${createHmac("sha256", secret)
+      .update("monitrail:auth-rate:v1\0")
+      .update(key)
+      .digest("hex")}`;
+  }
+
   return {
-    async consume(key, rule) {
-      if (typeof key !== "string" || !key || !Number.isFinite(rule.window) || rule.window <= 0 ||
-        rule.window > Number.MAX_SAFE_INTEGER / 1000 || !Number.isSafeInteger(rule.max) || rule.max <= 0) {
+    async consume(key: string, rule: { window: number; max: number }) {
+      if (
+        !key ||
+        !Number.isSafeInteger(rule.window) ||
+        rule.window <= 0 ||
+        !Number.isSafeInteger(rule.max) ||
+        rule.max <= 0
+      )
+        throw unavailable();
+      const bucket = identity(key);
+      try {
+        return await db.transaction(async (transaction) => {
+          await transaction.execute(sql`SET LOCAL lock_timeout = '2s'`);
+          await transaction.execute(sql`SET LOCAL statement_timeout = '5s'`);
+          await transaction.execute(
+            sql`SELECT pg_advisory_xact_lock(hashtextextended(${bucket},0))`,
+          );
+          const result = await transaction.execute(sql`SELECT count,
+            greatest(1,ceil(extract(epoch FROM window_start +
+              ${rule.window}::double precision * interval '1 second' - clock_timestamp())))::integer AS remaining,
+            window_start + ${rule.window}::double precision * interval '1 second' > clock_timestamp() AS active
+            FROM rate_limits WHERE key=${bucket} FOR UPDATE`);
+          const current = result.rows[0] as
+            | { count: number; remaining: number; active: boolean }
+            | undefined;
+          if (current?.active && current.count >= rule.max) {
+            return { allowed: false, retryAfter: current.remaining };
+          }
+          const count = current?.active ? current.count + 1 : 1;
+          await transaction.execute(sql`DELETE FROM rate_limits WHERE key=${bucket}`);
+          await transaction.execute(sql`INSERT INTO rate_limits(key,window_start,count)
+            VALUES(${bucket},clock_timestamp(),${count})`);
+          return { allowed: true, retryAfter: null };
+        });
+      } catch {
         throw unavailable();
       }
-      const { id, identifier } = bucketIdentity(secret, key);
+    },
+
+    async reserveOAuthState(hash: string) {
+      if (!/^[0-9a-f]{64}$/.test(hash)) throw unavailable();
       try {
-        // Small cleanup batches bound maintenance work. Repeat the expiry
-        // predicate outside the subquery so a concurrently refreshed bucket
-        // cannot be deleted after waiting for its row lock.
-        await db.execute(sql`DELETE FROM verification
-          WHERE user_id IS NULL AND identifier ~ '^auth-rate:[0-9a-f]{64}$'
-            AND expires_at <= clock_timestamp()
-            AND id IN (SELECT id FROM verification
-              WHERE user_id IS NULL AND identifier ~ '^auth-rate:[0-9a-f]{64}$'
-                AND expires_at <= clock_timestamp()
-              ORDER BY expires_at,id LIMIT 100)`);
-        const result = await db.execute(sql`INSERT INTO verification(id,identifier,value,expires_at,created_at,updated_at)
-          SELECT ${id}::uuid,${identifier},
-            jsonb_build_object('count',1,'lastRequest',floor(extract(epoch FROM stamp.now)*1000)::bigint,'allowed',true)::text,
-            stamp.now + ${rule.window}::double precision * interval '1 second',stamp.now,stamp.now
-          FROM (SELECT clock_timestamp() AS now) stamp
-          ON CONFLICT(id) DO UPDATE SET (value,expires_at,updated_at) = (
-            SELECT
-              CASE
-                WHEN verification.expires_at <= step.now THEN jsonb_build_object('count',1,'lastRequest',floor(extract(epoch FROM step.now)*1000)::bigint,'allowed',true)
-                WHEN (verification.value::jsonb->>'count')::bigint < ${rule.max} THEN jsonb_build_object('count',(verification.value::jsonb->>'count')::bigint+1,'lastRequest',floor(extract(epoch FROM step.now)*1000)::bigint,'allowed',true)
-                ELSE jsonb_set(verification.value::jsonb,'{allowed}','false'::jsonb)
-              END::text,
-              CASE WHEN verification.expires_at <= step.now OR (verification.value::jsonb->>'count')::bigint < ${rule.max}
-                THEN step.now + ${rule.window}::double precision * interval '1 second' ELSE verification.expires_at END,
-              CASE WHEN verification.expires_at <= step.now OR (verification.value::jsonb->>'count')::bigint < ${rule.max}
-                THEN step.now ELSE verification.updated_at END
-            FROM (SELECT clock_timestamp() AS now) step
-          )
-          WHERE verification.identifier=excluded.identifier AND verification.user_id IS NULL
-          RETURNING (value::jsonb->>'allowed')::boolean AS allowed,
-            CASE WHEN (value::jsonb->>'allowed')::boolean THEN NULL
-              ELSE greatest(1,ceil(extract(epoch FROM expires_at-clock_timestamp())))::integer END AS "retryAfter"`);
-        if (result.rows.length !== 1) throw unavailable();
-        const row = result.rows[0];
-        if (!row || typeof row !== "object" || !("allowed" in row) || !("retryAfter" in row)) throw unavailable();
-        if (row.allowed === true && row.retryAfter === null) return { allowed: true, retryAfter: null };
-        if (row.allowed === false && typeof row.retryAfter === "number" && Number.isSafeInteger(row.retryAfter) && row.retryAfter > 0) {
-          return { allowed: false, retryAfter: row.retryAfter };
-        }
-        throw unavailable();
+        await db.execute(sql`INSERT INTO rate_limits(key,window_start,count)
+          VALUES(${`oauth-state:${hash}`},clock_timestamp(),0)`);
       } catch {
-        // No driver exceptions, connection strings or limiter keys escape.
+        throw unavailable();
+      }
+    },
+
+    async consumeOAuthState(hash: string): Promise<boolean> {
+      if (!/^[0-9a-f]{64}$/.test(hash)) throw unavailable();
+      try {
+        const result = await db.execute(sql`UPDATE rate_limits SET count=1
+          WHERE key=${`oauth-state:${hash}`} AND count=0
+            AND window_start > clock_timestamp() - ${oauthStateSeconds} * interval '1 second'
+          RETURNING key`);
+        return result.rows.length === 1;
+      } catch {
         throw unavailable();
       }
     },

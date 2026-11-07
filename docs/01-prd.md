@@ -98,13 +98,20 @@ build slips, scope changes need the owner's approval; the agent may not cut
 or add scope by itself. A failed dogfood day (false incident, missed-check
 breach) restarts the 14-day count after the fix.
 
+## Source release
+
+The repository is private during development and will be released as open
+source when the app is deployed in Phase 11. The hosted service remains
+invite-only through dogfood. The owner selects the open-source license
+before making the repository public.
+
 ## Open decisions (owner only; agents must not invent answers)
 1. Brand owner: XypherCore (parent organisation). Maintainer identity stays
    an alias for now (see doc 02) and may later change to the owner's real
    name. All identity strings (brand name, maintainer name, abuse contact,
    footer text) live in ONE config file so that change is a one-file edit.
    Never hard-code identity strings elsewhere.
-2. Repo visibility. Default: private until v1 ships.
+2. Open-source license. Choose before the Phase 11 source release.
 3. Domain. Default: free subdomain of the host.
 4. Hosting plan and commercial status (see doc 02, "Hosting terms"). Default
    for the build and dogfood: personal project, invite-only, no monetization;

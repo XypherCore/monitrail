@@ -1,11 +1,11 @@
 # Phase 3b delta report
 
-Prepared 2026-11-04 for owner approval. The comparison uses the last
+Prepared and approved 2026-11-04. The comparison uses the last
 verified rev 1 commit, `72c53e4`, and the owner-supplied rev 2
 [technical requirements](02-trd.md), [schema](05-backend-schema.md),
 [implementation plan](06-implementation-plan.md) and
-[decision log](07-decision-log.md). The Phase 4 rev 1 draft is preserved
-in Git stash `1b55de43dacf42b5e90af57b262715b200ba637e`.
+[decision log](07-decision-log.md). The Phase 4 rev 1 draft was archived
+before alignment.
 
 Phases 0–3 were verified under rev 1. The [Phase 3b gate](06-implementation-plan.md#week-1--foundation-and-security)
 requires approval of this report before migration or implementation. Its
@@ -37,7 +37,7 @@ updated Phase 0–3 acceptance checks.
 | Status pages and associations | Add slug format and case-insensitive uniqueness and `slug_tombstones`. Retain both composite owner foreign keys, cascades and the default hidden URL. Reserved-word policy, tagged caching and cache revocation belong to Phase 8. |
 | Safety and operations | Canonicalize `blocked_hosts` and add `include_subdomains` defaulting to true. Add `rate_limits` and `system_heartbeat`. The nonce protocol, scheduler and operational endpoints remain in their assigned phases. |
 
-## Decisions for approval
+## Approved decisions
 
 1. **Database and existing data.** Use a fresh disposable Supabase
    Postgres project, the documented default, and migrate and seed it with

@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import { execFileSync, spawn, type ChildProcess } from "node:child_process";
+import { randomUUID } from "node:crypto";
 import { existsSync, chmodSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { request as httpRequest } from "node:http";
 import { createServer, type Server } from "node:https";
@@ -8,22 +9,32 @@ import { join } from "node:path";
 import { setTimeout as delay } from "node:timers/promises";
 import { fileURLToPath } from "node:url";
 import { chromium, type Page } from "@playwright/test";
-import { makeSignature } from "better-auth/crypto";
-import { drizzle } from "drizzle-orm/neon-serverless";
-import { openNeonPool } from "../db/connection.ts";
 import { fixtureOwners } from "../db/fixtures.ts";
 import { readAuthConfig } from "../../src/auth/config.ts";
-import { createAuthCore } from "../../src/auth/core.ts";
+import {
+  assertFixtureSessionProjection,
+  assertFixtureSessionRevoked,
+  fixtureCookie,
+  insertRevocationAccount,
+  insertSeededOwnerSession,
+  newFixtureSession,
+  openFixtureDatabase,
+  removeFixtureSession,
+  removeRevocationAccount,
+  type FixtureDatabase,
+  type FixtureSession,
+} from "./fixture-session.ts";
 
 const baseURL = "https://localhost:3443";
 const webDirectory = fileURLToPath(new URL("../../", import.meta.url));
 let stage = "configuration";
-let pool: ReturnType<typeof openNeonPool> | undefined;
+let database: FixtureDatabase | undefined;
 let browser: Awaited<ReturnType<typeof chromium.launch>> | undefined;
 let server: Server | undefined;
 let child: ChildProcess | undefined;
 let certificateDirectory: string | undefined;
-let temporarySessionId: string | undefined;
+let temporarySession: FixtureSession | undefined;
+let temporaryAccountId: string | undefined;
 const errors: string[] = [];
 const origins = new Set<string>();
 const requestDiagnostics: { stage: string; path: string; type: string; navigation: boolean; rsc: boolean; prefetch: boolean; failure: string }[] = [];
@@ -66,7 +77,7 @@ try {
   assert(existsSync(join(webDirectory, ".next/BUILD_ID")));
 
   stage = "temporary local TLS setup";
-  certificateDirectory = mkdtempSync(join(tmpdir(), "monitrail-phase2-tls-"));
+  certificateDirectory = mkdtempSync(join(tmpdir(), "monitrail-phase3b-tls-"));
   const keyPath = join(certificateDirectory, "private-key.pem");
   const certificatePath = join(certificateDirectory, "certificate.pem");
   execFileSync("openssl", [
@@ -99,12 +110,19 @@ try {
   });
 
   stage = "production server startup";
+  const childEnv: NodeJS.ProcessEnv = {
+    ...process.env,
+    APP_URL: baseURL,
+    NODE_ENV: "production",
+    NEXT_TELEMETRY_DISABLED: "1",
+  };
+  delete childEnv.MIGRATION_DATABASE_URL;
   child = spawn(process.execPath, [
     fileURLToPath(new URL("../../../node_modules/next/dist/bin/next", import.meta.url)),
     "start", "--hostname", "127.0.0.1", "--port", "3001",
   ], {
     cwd: webDirectory,
-    env: { ...process.env, APP_URL: baseURL, NODE_ENV: "production", NEXT_TELEMETRY_DISABLED: "1" },
+    env: childEnv,
     stdio: "ignore",
   });
   child.on("error", () => errors.push("server startup error"));
@@ -114,7 +132,7 @@ try {
   const anonymous = await browser.newContext({ ignoreHTTPSErrors: true });
   let ready = false;
   for (let attempt = 0; attempt < 80; attempt++) {
-    if (child.exitCode !== null || errors.length) throw new Error();
+    if (child.exitCode !== null || child.signalCode !== null || errors.length) throw new Error();
     try {
       ready = (await anonymous.request.get(baseURL, { timeout: 1000 })).status() === 200;
       if (ready) break;
@@ -123,39 +141,13 @@ try {
   }
   assert(ready);
 
-  stage = "synthetic fixture identity verification";
-  pool = openNeonPool();
-  const owner = fixtureOwners[0];
-  const users = await pool.query("SELECT id FROM users WHERE id=$1 AND email=$2 AND name=$3", [owner.id, owner.email, owner.name]);
-  assert.equal(users.rows.length, 1);
-  const monitors = await pool.query("SELECT id,name,url FROM monitors WHERE user_id=$1", [owner.id]);
-  assert.equal(monitors.rows.length, 1);
-  assert.equal(monitors.rows[0].id, owner.monitorId);
-  assert.equal(monitors.rows[0].name, "Demo site 1");
-  assert.equal(monitors.rows[0].url, "https://demo-1.example.invalid");
-
   stage = "short-lived synthetic secure session";
-  const context = await createAuthCore(drizzle(pool), config).$context;
-  const session = await context.internalAdapter.createSession(owner.id, true, { expiresAt: new Date(Date.now() + 600000) }, true);
-  if (!session) throw new Error();
-  temporarySessionId = session.id;
-  assert(session.expiresAt.getTime() <= Date.now() + 600000);
-  const sessionCookie = context.authCookies.sessionToken;
-  assert.equal(sessionCookie.attributes.secure, true);
-  assert.equal(sessionCookie.attributes.httpOnly, true);
-  assert(sessionCookie.name.startsWith("__Secure-"));
-  const cookie = {
-    name: sessionCookie.name,
-    value: encodeURIComponent(`${session.token}.${await makeSignature(session.token, config.secret)}`),
-    url: baseURL, httpOnly: true, secure: true, sameSite: "Lax" as const,
-  };
-  // Prevent the short-lived administrative fixture from being extended by the
-  // normal session-renewal endpoint; renewal itself has a separate regression test.
-  const remember = context.authCookies.dontRememberToken;
-  const rememberCookie = {
-    ...cookie, name: remember.name,
-    value: encodeURIComponent(`true.${await makeSignature("true", config.secret)}`),
-  };
+  database = openFixtureDatabase();
+  const [owner] = fixtureOwners;
+  const session = newFixtureSession(owner.id);
+  temporarySession = session;
+  await insertSeededOwnerSession(database, session);
+  const cookie = fixtureCookie(baseURL, session);
 
   stage = "production anonymous route redirects";
   for (const path of ["/dashboard", "/channels", "/status-pages", "/settings", "/monitors/new", `/monitors/${fixtureOwners[1].monitorId}`]) {
@@ -180,43 +172,57 @@ try {
   }
   assert.equal(await page.getByRole("button", { name: "Continue with GitHub" }).count(), 1);
   assert.equal(await page.getByRole("button", { name: "Continue with Google" }).count(), 1);
+  assert.equal(await page.getByLabel("Invitation code").count(), config.signupMode === "invite" ? 1 : 0);
   await anonymous.close();
 
-  stage = "production secure-cookie owner access";
+  stage = "production secure-cookie storage";
   const authenticated = await browser.newContext({ ignoreHTTPSErrors: true });
-  await authenticated.addCookies([cookie, rememberCookie]);
+  await authenticated.addCookies([cookie]);
   const storedCookie = (await authenticated.cookies(baseURL)).find(item => item.name === cookie.name);
   assert.equal(storedCookie?.secure, true);
   assert.equal(storedCookie?.httpOnly, true);
   assert.equal(storedCookie?.sameSite, "Lax");
+  stage = "production sanitized session and secure cookie issuance";
+  await assertFixtureSessionProjection(database, session, () =>
+    authenticated.request.get(`${baseURL}/api/auth/get-session`, { maxRedirects: 0 }),
+    cookie.name,
+  );
+  stage = "production authenticated dashboard HTTP response";
+  const dashboard = await authenticated.request.get(`${baseURL}/dashboard`, { maxRedirects: 0 });
+  if (dashboard.status() !== 200) {
+    console.error(`Authenticated dashboard status: ${dashboard.status()}.`);
+    throw new Error();
+  }
   const privatePage = await authenticated.newPage();
   observe(privatePage);
+  stage = "production dashboard navigation at 360 px";
+  await privatePage.setViewportSize({ width: 360, height: 800 });
+  const response = await privatePage.goto(`${baseURL}/dashboard`, { waitUntil: "domcontentloaded" });
+  if (response?.status() !== 200) {
+    console.error(`Dashboard document status: ${response?.status() ?? "unavailable"}.`);
+    throw new Error();
+  }
   for (const width of [360, 1440]) {
+    stage = `production dashboard owner layout at ${width} px`;
     await privatePage.setViewportSize({ width, height: 800 });
-    assert.equal((await privatePage.goto(`${baseURL}/dashboard`, { waitUntil: "networkidle" }))?.status(), 200);
+    await privatePage.getByRole("heading", { name: "Dashboard", exact: true }).waitFor();
     assert.equal(await privatePage.getByRole("heading", { name: "Dashboard", exact: true }).count(), 1);
     assert(await privatePage.evaluate(() => document.documentElement.scrollWidth <= innerWidth));
     assert.equal(await privatePage.locator(".monitor-row").count(), 1);
     assert(!(await privatePage.content()).includes("demo-2.example.invalid"));
-    if (width === 360) await privatePage.screenshot({ path: "/tmp/monitrail-phase2-production-dashboard-360.png", fullPage: true });
+    if (width === 360) await privatePage.screenshot({ path: "/tmp/monitrail-phase3b-production-dashboard-360.png", fullPage: true });
   }
-  await privatePage.goto(`${baseURL}/settings`, { waitUntil: "networkidle" });
-  assert((await privatePage.textContent("main"))?.includes(owner.email));
-  const safeResponse = await authenticated.request.get(`${baseURL}/api/auth/get-session`);
-  assert.equal(safeResponse.status(), 200);
-  const safeText = await safeResponse.text();
-  assert(!safeText.includes(session.token));
-  const safe = JSON.parse(safeText);
-  assert.deepEqual(Object.keys(safe).sort(), ["session", "user"]);
-  assert.deepEqual(Object.keys(safe.session), ["expiresAt"]);
-  assert.deepEqual(Object.keys(safe.user).sort(), ["email", "id", "name"]);
+  stage = "production settings owner identity";
+  const settings = await authenticated.request.get(`${baseURL}/settings`, { maxRedirects: 0 });
+  assert.equal(settings.status(), 200);
+  assert((await settings.text()).includes(owner.email));
 
   stage = "production HTML without JavaScript";
   const noJavaScript = await browser.newContext({ ignoreHTTPSErrors: true, javaScriptEnabled: false, viewport: { width: 360, height: 800 } });
-  await noJavaScript.addCookies([cookie, rememberCookie]);
+  await noJavaScript.addCookies([cookie]);
   const htmlPage = await noJavaScript.newPage();
   observe(htmlPage, false);
-  assert.equal((await htmlPage.goto(`${baseURL}/dashboard`, { waitUntil: "networkidle" }))?.status(), 200);
+  assert.equal((await htmlPage.goto(`${baseURL}/dashboard`, { waitUntil: "domcontentloaded" }))?.status(), 200);
   assert.equal(await htmlPage.getByRole("heading", { name: "Dashboard", exact: true }).count(), 1);
   assert.equal(await htmlPage.locator(".monitor-row").count(), 1);
   assert(await htmlPage.evaluate(() => document.documentElement.scrollWidth <= innerWidth));
@@ -236,38 +242,68 @@ try {
   stage = "production logout protected redirect";
   assert.equal((await authenticated.request.get(`${baseURL}/dashboard`, { maxRedirects: 0 })).status(), 307);
   stage = "production logout persisted revocation";
-  assert.equal((await pool.query("SELECT id FROM sessions WHERE id=$1 AND user_id=$2", [session.id, owner.id])).rows.length, 0);
+  await assertFixtureSessionRevoked(database, session);
   stage = "production logout browser revocation";
   assert(!(await authenticated.cookies(baseURL)).some(item => item.name === cookie.name));
   await authenticated.close();
+
+  stage = "production account deletion revokes the existing session cookie";
+  const deletionSession = newFixtureSession(randomUUID());
+  temporaryAccountId = deletionSession.userId;
+  await insertRevocationAccount(database, deletionSession);
+  const deletion = await browser.newContext({ ignoreHTTPSErrors: true });
+  await deletion.addCookies([fixtureCookie(baseURL, deletionSession)]);
+  assert.equal((await deletion.request.get(`${baseURL}/dashboard`, { maxRedirects: 0 })).status(), 200);
+  assert.equal(await removeRevocationAccount(database, deletionSession.userId), 1);
+  await assertFixtureSessionRevoked(database, deletionSession);
+  assert.equal((await deletion.request.get(`${baseURL}/dashboard`, { maxRedirects: 0 })).status(), 307);
+  const deletedSession = await deletion.request.get(`${baseURL}/api/auth/get-session`, { maxRedirects: 0 });
+  assert.equal(deletedSession.status(), 200);
+  assert.equal(await deletedSession.json(), null);
+  await deletion.close();
+
   stage = "production browser errors and external requests";
   if (errors.length) console.error(`Browser check categories: ${JSON.stringify(errors.reduce<Record<string, number>>((counts, value) => { counts[value] = (counts[value] ?? 0) + 1; return counts; }, {}))}`);
   if (requestDiagnostics.length) console.error(`Safe request diagnostics: ${JSON.stringify(requestDiagnostics)}`);
   assert.deepEqual(errors, []);
   assert.deepEqual([...origins], [baseURL]);
   console.log(`Expected browser cancellations: ${expectedCancellations.prefetch} speculative RSC prefetches; ${expectedCancellations.disabledScript} scripts blocked only in the JavaScript-disabled context.`);
-  console.log("Phase 2 production acceptance passed: real production build behind local HTTPS, secure HttpOnly cookies, protected redirects, owner-only layouts at 360/1440 px, no browser errors/failed required requests/external requests, HTML without JavaScript, sanitized session DTO and logout revocation.");
-} catch {
-  console.error(`Phase 2 production acceptance failed during ${stage}; credential values and raw errors were not displayed.`);
+  console.log("Phase 3b production acceptance passed: real production build behind local HTTPS, secure HttpOnly cookies, protected redirects, owner-only layouts at 360/1440 px, no browser errors/failed required requests/external requests, HTML without JavaScript, sanitized session DTO and revocation on logout and account deletion.");
+} catch (error) {
+  const category = error instanceof Error && error.name === "TimeoutError" ? "timeout" :
+    error instanceof Error ? error.message.match(/net::[A-Z_]+/)?.[0] : undefined;
+  if (category) console.error(`Browser failure category: ${category}.`);
+  console.error(`Phase 3b production acceptance failed during ${stage}; credential values and raw errors were not displayed.`);
   process.exitCode = 1;
 } finally {
   try { await browser?.close(); }
   catch { console.error("Production browser cleanup failed."); process.exitCode = 1; }
-  if (pool && temporarySessionId) {
-    try { await pool.query("DELETE FROM sessions WHERE id=$1 AND user_id=$2", [temporarySessionId, fixtureOwners[0].id]); }
-    catch { console.error("Temporary fixture-session cleanup failed; review the disposable branch."); process.exitCode = 1; }
+  if (database && temporarySession) {
+    try { await removeFixtureSession(database, temporarySession); }
+    catch { console.error("Temporary fixture-session cleanup failed; review the disposable project."); process.exitCode = 1; }
   }
-  try { await pool?.end(); }
+  if (database && temporaryAccountId) {
+    try { await removeRevocationAccount(database, temporaryAccountId); }
+    catch { console.error("Temporary revocation-account cleanup failed; review the disposable project."); process.exitCode = 1; }
+  }
+  try { await database?.end({ timeout: 5 }); }
   catch { console.error("Production fixture connection cleanup failed."); process.exitCode = 1; }
   if (server?.listening) {
     server.closeAllConnections();
     await new Promise<void>(resolve => server?.close(() => resolve()));
   }
-  if (child && child.exitCode === null) {
-    const stopped = new Promise<void>(resolve => child?.once("exit", () => resolve()));
-    child.kill("SIGTERM");
-    await Promise.race([stopped, delay(2000)]);
-    if (child.exitCode === null) { child.kill("SIGKILL"); await stopped; }
+  if (child?.pid && child.exitCode === null && child.signalCode === null) {
+    const serverProcess = child;
+    const stopped = new Promise<boolean>(resolve => serverProcess.once("exit", () => resolve(true)));
+    serverProcess.kill("SIGTERM");
+    if (!(await Promise.race([stopped, delay(2000, false)]))) {
+      serverProcess.kill("SIGKILL");
+      if (!(await Promise.race([stopped, delay(2000, false)]))) {
+        console.error("Production test server did not exit.");
+        serverProcess.unref();
+        process.exitCode = 1;
+      }
+    }
   }
   if (certificateDirectory) rmSync(certificateDirectory, { recursive: true, force: true });
 }

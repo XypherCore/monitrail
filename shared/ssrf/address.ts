@@ -81,6 +81,15 @@ function parseAddress(input: string): Address | null {
   };
 }
 
+/** Key for exact-host quotas and blocks. IPv4 and its mapped form share a key. */
+export function canonicalPolicyHost(input: string): string | null {
+  const host = canonicalHostname(input);
+  if (!host?.startsWith("[")) return host;
+  const address = parseAddress(host);
+  if (!address || address.value >> 32n !== 0xffffn) return host;
+  return [24n, 16n, 8n, 0n].map((shift) => Number((address.value >> shift) & 0xffn)).join(".");
+}
+
 function prefix(address: string, bits: number, version: 4 | 6): Prefix {
   const parsed = parseAddress(address);
   if (!parsed || parsed.version !== version) throw new Error("Address policy is invalid.");
@@ -184,8 +193,9 @@ export function isPublicAddress(input: string): boolean {
 }
 
 /** Canonical target URL or a fixed error without the supplied URL or secrets. */
-export function parseTarget(input: string): URL {
+export function parseTarget(input: string, profile: "monitor" | "webhook" = "monitor"): URL {
   const denied = () => new Error("Target URL is not allowed.");
+  if (profile !== "monitor" && profile !== "webhook") throw denied();
   if (typeof input !== "string" || !input || hasForbiddenUrlCharacters(input)) throw denied();
   const authority = /^https?:\/\/([^/?#]*)/i.exec(input)?.[1];
   if (!authority || authority.includes("@")) throw denied();
@@ -202,6 +212,8 @@ export function parseTarget(input: string): URL {
     (target.port && !["80", "443", "8080", "8443"].includes(target.port))
   )
     throw denied();
+  // The URL serializer omits the explicit default port for HTTPS.
+  if (profile === "webhook" && (target.protocol !== "https:" || target.port)) throw denied();
   const host = canonicalHostname(target.hostname);
   if (!host) throw denied();
   if ((host.startsWith("[") || /^(?:\d{1,3}\.){3}\d{1,3}$/.test(host)) && !isPublicAddress(host))
@@ -209,4 +221,48 @@ export function parseTarget(input: string): URL {
   target.hostname = host;
   target.hash = "";
   return target;
+}
+
+export type WebhookProvider = "webhook" | "slack" | "discord";
+
+export function parseWebhookTarget(input: string, provider: WebhookProvider): URL {
+  const target = parseTarget(input, "webhook");
+  if (provider === "webhook") return target;
+
+  // Compare the literal path as well as the parsed URL. URL parsing can
+  // normalize dot segments, and the provider scope excludes encoded aliases.
+  const raw = /^https:\/\/([^/?#]+)(\/[^?#]*)$/i.exec(input);
+  const authority = raw?.[1].toLowerCase();
+  if (raw?.[2] === target.pathname) {
+    if (
+      provider === "slack" &&
+      (authority === "hooks.slack.com" || authority === "hooks.slack.com:443") &&
+      /^\/services\/[a-z\d]+\/[a-z\d]+\/[a-z\d_-]+$/i.test(raw[2])
+    )
+      return target;
+    if (
+      provider === "discord" &&
+      (authority === "discord.com" || authority === "discord.com:443") &&
+      /^\/api\/webhooks\/\d+\/[a-zA-Z0-9_-]+$/.test(raw[2])
+    )
+      return target;
+  }
+  throw new Error("Target URL is not allowed.");
+}
+
+export function isRedirectStatus(statusCode: number): boolean {
+  return [301, 302, 303, 307, 308].includes(statusCode);
+}
+
+export function parseRedirectTarget(location: string | null, current: URL): URL {
+  if (!location || hasForbiddenUrlCharacters(location))
+    throw new Error("Target URL is not allowed.");
+  // Preserve original authority syntax so URL parsing cannot erase empty userinfo.
+  if (/^[a-z][a-z\d+.-]*:/i.test(location)) return parseTarget(location);
+  if (location.startsWith("//")) return parseTarget(`${current.protocol}${location}`);
+  try {
+    return parseTarget(new URL(location, current).href);
+  } catch {
+    throw new Error("Target URL is not allowed.");
+  }
 }

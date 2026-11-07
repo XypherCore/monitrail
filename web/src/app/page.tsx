@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { identity } from "../../../shared/identity";
 
 export default function Home() {
 	return (
@@ -7,11 +8,11 @@ export default function Home() {
 				Skip to content
 			</a>
 			<header className="public-header">
-				<Link className="wordmark" href="/" aria-label="Monitrail home">
+				<Link className="wordmark" href="/" aria-label={`${identity.brandName} home`}>
 					<span className="brand-mark" aria-hidden="true">
-						m
+						{identity.monogram}
 					</span>
-					Monitrail
+					{identity.brandName}
 				</Link>
 			</header>
 			<main className="landing-main" id="main-content">
@@ -46,7 +47,7 @@ export default function Home() {
 					</p>
 				</section>
 			</main>
-			<footer className="public-footer">Monitrail</footer>
+			<footer className="public-footer">{identity.footerText}</footer>
 		</div>
 	);
 }

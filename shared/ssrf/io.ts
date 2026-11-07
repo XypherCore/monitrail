@@ -35,34 +35,25 @@ export function cancelBody(response: Response): void {
   }
 }
 
-async function readBody(
-  response: Response,
-  signal: AbortSignal,
-  limit: number,
-  collect: boolean,
-): Promise<Uint8Array[]> {
-  if (!response.body) return [];
+export async function discardBody(response: Response, signal: AbortSignal): Promise<void> {
+  if (!response.body) return;
   // Reject transports without byte readers. A default reader can deliver an
   // arbitrarily large chunk regardless of the remaining budget.
   const reader = response.body.getReader({ mode: "byob" });
-  const chunks: Uint8Array[] = [];
   let total = 0;
   try {
-    while (total < limit) {
+    while (total < 65536) {
       const chunk = await awaitSignal(
-        reader.read(new Uint8Array(Math.min(8192, limit - total))),
+        reader.read(new Uint8Array(Math.min(8192, 65536 - total))),
         signal,
       );
-      if (chunk.done) return chunks;
+      if (chunk.done) return;
       if (!(chunk.value instanceof Uint8Array) || chunk.value.byteLength === 0)
         throw new Error("Invalid response stream.");
       const length = chunk.value.byteLength;
-      if (collect && total + length >= limit) throw new Error("Resolver response limit exceeded.");
       // Target bytes are counted and discarded, never parsed or returned.
       total += length;
-      if (collect) chunks.push(chunk.value);
     }
-    return chunks;
   } finally {
     try {
       void reader.cancel().catch(() => {});
@@ -75,25 +66,4 @@ async function readBody(
       /* A canceled reader may still be finishing a pending read. */
     }
   }
-}
-
-export async function discardBody(response: Response, signal: AbortSignal): Promise<void> {
-  await readBody(response, signal, 65536, false);
-}
-
-/** Resolver JSON must finish below the bound; a truncated valid prefix is never accepted. */
-export async function readBoundedJson(
-  response: Response,
-  signal: AbortSignal,
-  limit = 65536,
-): Promise<unknown> {
-  const chunks = await readBody(response, signal, limit, true);
-  const size = chunks.reduce((total, chunk) => total + chunk.byteLength, 0);
-  const bytes = new Uint8Array(size);
-  let offset = 0;
-  for (const chunk of chunks) {
-    bytes.set(chunk, offset);
-    offset += chunk.byteLength;
-  }
-  return JSON.parse(new TextDecoder("utf-8", { fatal: true, ignoreBOM: false }).decode(bytes));
 }

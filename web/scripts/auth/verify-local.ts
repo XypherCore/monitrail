@@ -1,41 +1,36 @@
 import assert from "node:assert/strict";
 import { existsSync } from "node:fs";
 import { chromium } from "@playwright/test";
-import { makeSignature } from "better-auth/crypto";
-import { drizzle } from "drizzle-orm/neon-serverless";
-import { openNeonPool } from "../db/connection.ts";
 import { fixtureOwners } from "../db/fixtures.ts";
 import { readAuthConfig } from "../../src/auth/config.ts";
-import { createAuthCore } from "../../src/auth/core.ts";
+import {
+  assertFixtureSessionProjection,
+  assertFixtureSessionRevoked,
+  fixtureCookie,
+  insertSeededOwnerSession,
+  newFixtureSession,
+  openFixtureDatabase,
+  removeFixtureSession,
+  type FixtureDatabase,
+  type FixtureSession,
+} from "./fixture-session.ts";
 
 let stage = "configuration";
-let pool: ReturnType<typeof openNeonPool> | undefined;
+let database: FixtureDatabase | undefined;
 let browser: Awaited<ReturnType<typeof chromium.launch>> | undefined;
-let temporarySessionId: string | undefined;
+let temporarySession: FixtureSession | undefined;
 try {
   if (!process.argv.includes("--confirm-fixture-session") || process.env.NODE_ENV === "production") throw new Error();
   const config = readAuthConfig(process.env);
   const app = new URL(config.baseURL);
   if (app.protocol !== "http:" || !["localhost", "127.0.0.1"].includes(app.hostname)) throw new Error();
-  pool = openNeonPool();
-  const owner = fixtureOwners[0];
-  const found = await pool.query("SELECT id FROM users WHERE id=$1 AND email=$2", [owner.id, owner.email]);
-  assert.equal(found.rows.length, 1);
-  const auth = createAuthCore(drizzle(pool), config);
-  const context = await auth.$context;
-  const session = await context.internalAdapter.createSession(owner.id, true, { expiresAt: new Date(Date.now() + 600000) }, true);
-  if (!session) throw new Error();
-  temporarySessionId = session.id;
-  assert(session.expiresAt.getTime() <= Date.now() + 600000);
-  const cookie = {
-    name: context.authCookies.sessionToken.name,
-    value: encodeURIComponent(`${session.token}.${await makeSignature(session.token, config.secret)}`),
-    url: config.baseURL, httpOnly: true, secure: false, sameSite: "Lax" as const,
-  };
-  const rememberCookie = {
-    ...cookie, name: context.authCookies.dontRememberToken.name,
-    value: encodeURIComponent(`true.${await makeSignature("true", config.secret)}`),
-  };
+  stage = "synthetic fixture session";
+  database = openFixtureDatabase();
+  const [owner] = fixtureOwners;
+  const session = newFixtureSession(owner.id);
+  temporarySession = session;
+  await insertSeededOwnerSession(database, session);
+  const cookie = fixtureCookie(config.baseURL, session);
   browser = await chromium.launch({ headless: true, ...(existsSync("/usr/bin/chromium") ? { executablePath: "/usr/bin/chromium" } : {}) });
   const anonymous = await browser.newContext();
   stage = "unauthenticated route protection";
@@ -83,13 +78,14 @@ try {
   }
   assert.equal(await page.getByRole("button", { name: "Continue with GitHub" }).count(), 1);
   assert.equal(await page.getByRole("button", { name: "Continue with Google" }).count(), 1);
+  assert.equal(await page.getByLabel("Invitation code").count(), config.signupMode === "invite" ? 1 : 0);
   await page.keyboard.press("Tab");
   assert(await page.locator(":focus-visible").count() > 0);
   await anonymous.close();
 
   stage = "authenticated owner-scoped browser layout";
   const authenticated = await browser.newContext();
-  await authenticated.addCookies([cookie, rememberCookie]);
+  await authenticated.addCookies([cookie]);
   const privatePage = await authenticated.newPage();
   privatePage.on("pageerror", () => errors.push("private page error"));
   privatePage.on("console", message => { if (message.type() === "error") errors.push("private console error"); });
@@ -101,33 +97,34 @@ try {
     assert(await privatePage.evaluate(() => document.documentElement.scrollWidth <= innerWidth));
     assert.equal(await privatePage.locator(".monitor-row").count(), 1);
     assert(!(await privatePage.content()).includes("demo-2.example.invalid"));
-    if (width === 360) await privatePage.screenshot({ path: "/tmp/monitrail-phase2-dashboard-360.png", fullPage: true });
+    if (width === 360) await privatePage.screenshot({ path: "/tmp/monitrail-phase3b-dashboard-360.png", fullPage: true });
   }
   await privatePage.goto(`${config.baseURL}/settings`, { waitUntil: "networkidle" });
   assert((await privatePage.textContent("main"))?.includes(owner.email));
-  const safeSession = await authenticated.request.get(`${config.baseURL}/api/auth/get-session`);
-  assert(!(await safeSession.text()).includes(session.token));
+  stage = "sanitized session projection";
+  await assertFixtureSessionProjection(database, session, () =>
+    authenticated.request.get(`${config.baseURL}/api/auth/get-session`, { maxRedirects: 0 }),
+  );
 
   stage = "logout and revoked session";
   await privatePage.getByRole("button", { name: "Sign out", exact: true }).click();
   await privatePage.waitForURL(`${config.baseURL}/`);
   assert.equal((await authenticated.request.get(`${config.baseURL}/dashboard`, { maxRedirects: 0 })).status(), 307);
-  const revoked = await pool.query("SELECT id FROM sessions WHERE id=$1 AND user_id=$2", [session.id, owner.id]);
-  assert.equal(revoked.rows.length, 0);
+  await assertFixtureSessionRevoked(database, session);
   assert.deepEqual(errors, []);
   assert.deepEqual([...origins], [config.baseURL]);
-  console.log("Phase 2 local acceptance passed: protected redirects, forged-session rejection, token endpoint restrictions, owner-scoped authenticated UI at 360/1440 px, no browser errors/external requests, and logout revocation. Temporary synthetic session removed.");
+  console.log("Phase 3b local acceptance passed: protected redirects, forged-session rejection, token endpoint restrictions, owner-scoped authenticated UI at 360/1440 px, no browser errors/external requests, and logout revocation. Temporary synthetic session removed.");
 } catch (error) {
   const category = error instanceof Error && error.name === "AssertionError" ? "assertion" : "runtime";
-  console.error(`Phase 2 local acceptance failed during ${stage} (${category}); credential values and raw errors were not displayed.`);
+  console.error(`Phase 3b local acceptance failed during ${stage} (${category}); credential values and raw errors were not displayed.`);
   process.exitCode = 1;
 } finally {
   try { await browser?.close(); }
   catch { console.error("Local browser cleanup failed."); process.exitCode = 1; }
-  if (pool && temporarySessionId) {
-    try { await pool.query("DELETE FROM sessions WHERE id=$1 AND user_id=$2", [temporarySessionId, fixtureOwners[0].id]); }
-    catch { console.error("Temporary fixture-session cleanup failed; review the disposable branch."); process.exitCode = 1; }
+  if (database && temporarySession) {
+    try { await removeFixtureSession(database, temporarySession); }
+    catch { console.error("Temporary fixture-session cleanup failed; review the disposable project."); process.exitCode = 1; }
   }
-  try { await pool?.end(); }
+  try { await database?.end({ timeout: 5 }); }
   catch { console.error("Local fixture connection cleanup failed."); process.exitCode = 1; }
 }
