@@ -1,15 +1,6 @@
+import Link from "next/link";
 import { getCurrentDataAccess, requireUser } from "../../../auth/session";
-import { displayMonitorUrl } from "../../../data/display-url";
-
-const statusLabels = {
-	up: "Up",
-	down: "Down",
-	pending: "Pending",
-	paused: "Paused",
-	confirming: "Confirming",
-	blocked: "Blocked",
-	unknown: "Unknown",
-};
+import { MonitorStatus } from "../../../components/monitor-status";
 
 export default async function DashboardPage() {
 	await requireUser("/dashboard");
@@ -24,38 +15,37 @@ export default async function DashboardPage() {
 			<section className="section-panel" aria-labelledby="monitors-heading">
 				<div className="panel-heading">
 					<h2 id="monitors-heading">Monitors</h2>
+					{monitors.length > 0 && (
+						<Link className="button button-primary" href="/monitors/new">
+							Add monitor
+						</Link>
+					)}
 				</div>
 				{monitors.length === 0 ? (
 					<div className="empty-state">
 						<span className="empty-symbol" aria-hidden="true">
 							＋
 						</span>
-						<h2>No monitors yet</h2>
+						<h3>No monitors yet</h3>
 						<p>Your monitors and their current status will appear here.</p>
-						<button
-							className="button"
-							type="button"
-							disabled
-							aria-describedby="monitor-availability"
-						>
+						<Link className="button button-primary" href="/monitors/new">
 							Add monitor
-						</button>
-						<p className="availability-note" id="monitor-availability">
-							Monitor setup is not available yet.
-						</p>
+						</Link>
 					</div>
 				) : (
 					<ul className="monitor-list">
 						{monitors.map((monitor) => (
 							<li className="monitor-row" key={monitor.id}>
-								<div className="monitor-description">
-									<p className="monitor-name">{monitor.name}</p>
-									<p className="monitor-url">{displayMonitorUrl(monitor.url)}</p>
-								</div>
-								<span className={`status status-${monitor.status}`}>
-									<span className="status-dot" aria-hidden="true" />
-									{statusLabels[monitor.status]}
-								</span>
+								<Link
+									className="monitor-row-link"
+									href={`/monitors/${monitor.id}`}
+								>
+									<div className="monitor-description">
+										<p className="monitor-name">{monitor.name}</p>
+										<p className="monitor-url">{monitor.url}</p>
+									</div>
+									<MonitorStatus status={monitor.status} />
+								</Link>
 							</li>
 						))}
 					</ul>

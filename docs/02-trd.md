@@ -108,9 +108,15 @@ Lifecycle changes (all bump `config_rev`, clear the lease, reset counters):
 - Pause: `is_paused = true`; open incident closes with reason `paused`; no
   recovery alert. Resume: status `pending`, `next_check_at = now`.
 - Edit URL or expected status: status `pending`, open incident closes with
-  reason `config_changed`, no recovery alert.
+  reason `config_changed`, no recovery alert. The new configuration is due
+  immediately and a paused monitor stays paused.
 - Blocked host: pause with `pause_reason = blocked_host`, incident closes
-  with reason `blocked`.
+  with reason `blocked`. To resume, first save a URL that passes validation.
+  This changes the pause reason to `user` and keeps the monitor paused
+  until the owner resumes it.
+Name and interval edits preserve the existing health state and in-flight
+check. An interval-only edit keeps the next scheduled check. The new
+interval applies when scheduling subsequent checks.
 Results for older `config_rev` are dropped by the rule above.
 New monitors are created with `next_check_at = now`.
 
@@ -261,9 +267,10 @@ scope in v1.
   details. An independent check (GitHub Actions scheduled workflow, every 15
   minutes, failing loudly) calls it. A dead checker must not look like a
   healthy fleet.
-- A monitor with no accepted result for 3 x interval (or no first result 10
-  minutes after creation) displays **Unknown**, never Up, and is excluded
-  from availability as a coverage gap.
+- A monitor with no accepted result for 3 x interval displays **Unknown**
+  and is excluded from availability as a coverage gap. While waiting for a
+  first result, show Pending for up to 10 minutes from creation, resume,
+  or the latest URL or expected-status change, then show Unknown.
 - Public status pages are cached with tag `status:{slug}` and a maximum
   staleness of 60 s. Every mutation that can change a public page (publish,
   unpublish, slug change, add or remove monitor, `show_url` toggle, monitor

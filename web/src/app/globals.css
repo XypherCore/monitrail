@@ -460,8 +460,10 @@ code,
 	border-radius: 10px;
 	color: var(--muted);
 }
-.empty-state h2 {
+.empty-state h2,
+.empty-state h3 {
 	font-size: 16px;
+	font-weight: 600;
 }
 .empty-state p {
 	max-width: 340px;
@@ -483,18 +485,175 @@ code,
 	padding: 0;
 	list-style: none;
 }
-.monitor-row {
+.monitor-row-link {
 	display: flex;
 	align-items: center;
 	justify-content: space-between;
 	gap: 24px;
+	min-height: 44px;
 	padding: 20px 22px;
+	color: var(--text);
+	text-decoration: none;
+	transition: background 150ms ease-out;
+}
+.monitor-row-link:hover {
+	background: var(--panel-2);
+}
+.monitor-row-link:focus-visible {
+	outline-offset: -2px;
 }
 .monitor-row + .monitor-row {
 	border-top: 1px solid var(--border);
 }
 .monitor-description {
 	min-width: 0;
+}
+.monitor-description .monitor-name {
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+}
+.monitor-status-icon {
+	width: 14px;
+	height: 14px;
+	flex: none;
+}
+.status-confirming {
+	color: var(--pending);
+}
+.status-confirming .monitor-status-icon,
+.status-pending .monitor-status-icon {
+	animation: pending-pulse 2s ease-in-out infinite;
+}
+.status-blocked,
+.status-unknown {
+	color: var(--muted);
+}
+.status-blocked .monitor-status-icon,
+.status-paused .monitor-status-icon {
+	color: var(--paused);
+}
+.monitor-back-link {
+	display: inline-flex;
+	align-items: center;
+	gap: 8px;
+	min-height: 44px;
+	margin-bottom: 10px;
+}
+.monitor-detail-title,
+.monitor-detail-url {
+	overflow-wrap: anywhere;
+}
+.monitor-detail-url {
+	font-family: "Geist Mono", ui-monospace, monospace;
+	font-size: 13px;
+}
+.monitor-detail-state {
+	display: flex;
+	flex-wrap: wrap;
+	align-items: center;
+	gap: 8px 14px;
+	margin-top: 14px;
+}
+.monitor-editor,
+.monitor-skeleton {
+	max-width: 720px;
+}
+.monitor-editor + .monitor-editor {
+	margin-top: 20px;
+}
+.monitor-form,
+.monitor-skeleton {
+	display: grid;
+	gap: 18px;
+	padding: 22px;
+}
+.monitor-fields,
+.monitor-form-grid {
+	display: grid;
+	gap: 18px;
+}
+.monitor-fields {
+	min-width: 0;
+	margin: 0;
+	padding: 0;
+	border: 0;
+}
+.monitor-form-grid {
+	grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+.monitor-field {
+	display: grid;
+	align-content: start;
+	gap: 6px;
+	min-width: 0;
+}
+.monitor-field label {
+	font-weight: 550;
+}
+.monitor-field input,
+.monitor-field select {
+	width: 100%;
+	min-height: 44px;
+	padding: 9px 12px;
+	border: 1px solid var(--border-strong);
+	border-radius: 8px;
+	background: var(--bg);
+	color: var(--text);
+	font: inherit;
+}
+.monitor-field [aria-invalid="true"] {
+	border-color: var(--down);
+}
+.monitor-field-error {
+	color: var(--down);
+}
+.monitor-hint,
+.monitor-state-note {
+	color: var(--muted);
+	font-size: 12px;
+}
+.monitor-form-actions {
+	display: flex;
+	flex-wrap: wrap;
+	align-items: center;
+	gap: 10px;
+}
+.monitor-dialog {
+	width: min(420px, calc(100% - 32px));
+	max-height: calc(100% - 32px);
+	margin: auto;
+	padding: 22px;
+	border: 1px solid var(--border-strong);
+	border-radius: 10px;
+	background: var(--panel);
+	color: var(--text);
+}
+.monitor-dialog::backdrop {
+	background: rgb(0 0 0 / 68%);
+}
+.monitor-dialog p {
+	margin-top: 12px;
+}
+.monitor-dialog .monitor-form-actions {
+	justify-content: flex-end;
+	margin-top: 20px;
+}
+.monitor-confirm-delete:not(:disabled) {
+	border-color: var(--down);
+	color: var(--down);
+}
+.skeleton-heading,
+.skeleton-block {
+	border-radius: 8px;
+	background: var(--panel-2);
+}
+.skeleton-heading {
+	width: 40%;
+	height: 22px;
+}
+.skeleton-block {
+	height: 44px;
 }
 .account-details {
 	display: grid;
@@ -615,13 +774,21 @@ code,
 	.empty-state {
 		padding: 36px 18px;
 	}
-	.monitor-row {
+	.monitor-row-link {
+		flex-direction: column;
 		align-items: flex-start;
-		gap: 16px;
+		gap: 8px;
 		padding: 18px;
 	}
 	.monitor-description {
-		max-width: calc(100% - 80px);
+		max-width: 100%;
+	}
+	.monitor-form,
+	.monitor-skeleton {
+		padding: 18px;
+	}
+	.monitor-form-grid {
+		grid-template-columns: minmax(0, 1fr);
 	}
 	.account-field {
 		grid-template-columns: minmax(0, 1fr);
@@ -634,10 +801,13 @@ code,
 }
 @media (prefers-reduced-motion: reduce) {
 	.button,
-	.nav-link {
+	.nav-link,
+	.monitor-row-link {
 		transition: none;
 	}
-	.status-pending .status-dot {
+	.status-pending .status-dot,
+	.status-pending .monitor-status-icon,
+	.status-confirming .monitor-status-icon {
 		animation: none;
 	}
 }

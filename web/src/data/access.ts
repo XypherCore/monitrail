@@ -137,7 +137,10 @@ async function rows(db: DataExecutor, statement: SQL): Promise<Row[]> {
   }
 }
 
-const monitorStateFields = sql`m.status,m.is_paused AS "isPaused",m.pause_reason AS "pauseReason",m.interval_seconds AS "intervalSeconds",m.last_checked_at AS "lastCheckedAt",m.created_at AS "createdAt",m.failures,m.successes`;
+const monitorStateFields = sql`m.status,m.is_paused AS "isPaused",m.pause_reason AS "pauseReason",m.interval_seconds AS "intervalSeconds",m.last_checked_at AS "lastCheckedAt",m.failures,m.successes,
+  CASE WHEN m.last_checked_at IS NULL AND NOT m.is_paused THEN greatest(m.created_at, (
+    SELECT max(e.at) FROM monitor_events e WHERE e.monitor_id=m.id AND e.kind IN ('resumed','config_changed')
+  )) END AS "observationStartedAt"`;
 const monitorFields = sql`m.id,m.name,m.url,m.expected_status AS "expectedStatus",${monitorStateFields}`;
 const channelFields = sql`c.id,c.type,c.label,c.is_verified AS "isVerified",c.created_at AS "createdAt"`;
 const incidentFields = sql`i.id,i.monitor_id AS "monitorId",i.started_at AS "startedAt",i.confirmed_at AS "confirmedAt",i.resolved_at AS "resolvedAt",i.resolved_confirmed_at AS "resolvedConfirmedAt",i.resolved_reason AS "resolvedReason",i.cause`;
@@ -147,7 +150,9 @@ function displayStatus(row: Row, now: Date): MonitorDto["status"] {
   if (row.isPaused) return row.pauseReason === "blocked_host" ? "blocked" : "paused";
   const lastCheckedAt = optionalDate(row.lastCheckedAt);
   if (!lastCheckedAt) {
-    return now.getTime() - date(row.createdAt).getTime() >= 10 * 60 * 1000 ? "unknown" : "pending";
+    return now.getTime() - date(row.observationStartedAt).getTime() >= 10 * 60 * 1000
+      ? "unknown"
+      : "pending";
   }
   if (now.getTime() - lastCheckedAt.getTime() >= Number(row.intervalSeconds) * 3 * 1000)
     return "unknown";

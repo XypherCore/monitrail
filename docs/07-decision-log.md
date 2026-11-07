@@ -50,6 +50,10 @@ first, then the code.
   computes `ok`; method and timeout are fixed, not configurable.
 - **Pause, resume, edit semantics**: one `is_paused` flag, `config_rev`,
   explicit incident closure reasons, no recovery alerts on closure.
+  Phase 4 owner decisions keep the next scheduled check on interval-only
+  edits and require saving a URL that passes validation before resuming a
+  blocked monitor. Resume and URL or expected-status changes restart the
+  existing 10-minute wait for a first result.
 - **OAuth, CSRF, `next`**: provider-ID account identity, no email linking,
   Origin checks, same-origin `next` only.
 - **Secrets**: AES-GCM envelope with key IDs and rotation, HTTPS-only

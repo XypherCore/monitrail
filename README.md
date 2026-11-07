@@ -60,13 +60,13 @@ ignored `web/.env.local` or `checker/.dev.vars` and provide only the needed
 `NAME=value` entries. Phase 0 builds and runs without credentials. Never
 commit or print secret values.
 
-The web app includes a landing page, OAuth login and protected workspace.
-Monitors and other later-phase management controls remain unavailable.
+The web app includes a landing page, OAuth login, and a protected workspace
+for creating, editing, pausing, resuming and deleting monitors.
 The production Worker still returns 404 and has no cron triggers, outbound
 requests, bindings or database access.
 Database lifecycle commands are administrative scripts. The server-only auth
 persistence boundary and application DAL are separate. The SSRF guard is
-ready for later integration. See the [Phase 3b verification log](docs/phase-3b-verification.md).
+used for monitor URL validation. See the [Phase 4 verification log](docs/phase-4-verification.md).
 No project has been deployed or connected to a remote Git repository.
 
 Tool telemetry is disabled in Next.js dev/build/start and Wrangler scripts.

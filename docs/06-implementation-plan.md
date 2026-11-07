@@ -45,12 +45,13 @@ Status legend: [ ] open, [~] in progress, [x] done
   Owner approved the [delta report](phase-3b-delta-report.md).
   The [Phase 3b verification log](phase-3b-verification.md) records the
   repeated foundation checks and live OAuth acceptance.
-- [ ] **Phase 4: Monitor CRUD.** Create, edit, pause, resume, delete with
+- [x] **Phase 4: Monitor CRUD.** Create, edit, pause, resume, delete with
   config_rev semantics, atomic quotas (user, global, per-host), blocklist,
   canonical host, rate limits, plain-language rejection reasons.
   Done when: concurrent create tests cannot exceed any cap; pause, resume
   and edit follow doc 02 exactly (incident closure reasons, counters, no
   recovery alerts); empty and pending states render.
+  See the [Phase 4 verification log](phase-4-verification.md).
 
 ## Week 2 — Checking and dashboard
 - [ ] **Phase 5: Checker, claim and ingest.** Worker cron, signed requests
