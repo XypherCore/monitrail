@@ -4,9 +4,9 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "dev": "NEXT_TELEMETRY_DISABLED=1 node --env-file-if-exists=.env.phase3b.local ../node_modules/next/dist/bin/next dev --webpack --hostname localhost",
+    "dev": "NEXT_TELEMETRY_DISABLED=1 node scripts/next.mjs dev --webpack --hostname localhost",
     "build": "NEXT_TELEMETRY_DISABLED=1 next build --webpack",
-    "start": "NEXT_TELEMETRY_DISABLED=1 node --env-file-if-exists=.env.phase3b.local ../node_modules/next/dist/bin/next start --hostname localhost",
+    "start": "NEXT_TELEMETRY_DISABLED=1 node scripts/next.mjs start --hostname localhost",
     "lint": "biome lint . --error-on-warnings",
     "typecheck": "NEXT_TELEMETRY_DISABLED=1 next typegen && tsc --noEmit",
     "test": "vitest run",

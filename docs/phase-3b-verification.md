@@ -58,3 +58,12 @@ The original Phase 0–3 verification logs document the earlier implementation.
 - Live GitHub and Google consent on this revised stack requires the owner.
   The prior provider sign-ins were on rev 1. Phase 3b remains open while
   this gate is pending.
+
+## Local launcher follow-up
+
+Next.js dev forwarded the Node env-file flag to its server worker in
+`NODE_OPTIONS`, where Node rejected it with exit code 9. The dev and start
+scripts now load local runtime configuration before invoking the Next CLI.
+The migration credential stays with the administrative commands. The
+original dev command reproduced the failure, and the updated command
+started on loopback and served the login page with HTTP 200.
