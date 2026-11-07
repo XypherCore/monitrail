@@ -10,41 +10,41 @@ to 05 before merge.
 Status legend: [ ] open, [~] in progress, [x] done
 
 ## Week 1 — Foundation and security
-- [ ] **Phase 0: Setup.** Repo, folders per doc 02, `.env.example`, lint,
+- [x] **Phase 0: Setup.** Repo, folders per doc 02, `.env.example`, lint,
   typecheck, test runner, git author set to the alias identity, one identity
   config file (brand name, maintainer name, abuse contact, footer text).
   Done when: build, lint, typecheck and an empty test run pass in `web/` and
   `checker/`; no secrets in history; no identity strings outside the config
   file.
-- [ ] **Phase 1: Database.** Drizzle schema and migrations for every table in
+- [x] **Phase 1: Database.** Drizzle schema and migrations for every table in
   doc 05 (including composite FKs, partial unique indexes, CHECK constraints
   and cascade rules), seed script.
   Done when: migrations apply to a clean database; the open-incident unique
   index rejects a second open incident; attaching another user's monitor to a
   channel or status page fails at the database level; the deletion test in
   doc 05 passes.
-- [ ] **Phase 2: Auth and access layers.** OAuth login with database
+- [x] **Phase 2: Auth and access layers.** OAuth login with database
   sessions, invite gate, protected routes, user DAL, service-capability
   skeletons, Origin checks, validated `next` parameter.
   Done when: unauthenticated requests redirect correctly; `next` rejects
   `//`, backslashes and schemes; IDOR tests prove user A cannot read, edit,
   delete, attach, replace, publish or unlink user B's rows; a session stops
   working after account deletion.
-- [ ] **Phase 3: SSRF guard.** Static rules, canonical host, web profile with
+- [x] **Phase 3: SSRF guard.** Static rules, canonical host, web profile with
   connect-time address validation, checker profile, blocklist matching,
   Slack/Discord host allowlists.
   Done when: the suite covers every rule in doc 02 (private ranges, metadata
   IPs, IPv4-mapped IPv6, odd IP encodings, userinfo, bad ports, DNS errors
   fail closed, redirects to private targets, redirect limits, subdomain block
   matching) and passes.
-- [~] **Phase 3b: Align to rev 2 (one-time, only if phases 0 to 3 were built
+- [x] **Phase 3b: Align to rev 2 (one-time, only if phases 0 to 3 were built
   from rev 1 docs).** Produce a delta report (built vs docs 02 and 05), get
   owner approval, migrate schema and code, extend the guard.
   Done when: the delta report is empty and all earlier "Done when" lines
   pass again.
   Owner approved the [delta report](phase-3b-delta-report.md).
-  See the [Phase 3b verification log](phase-3b-verification.md) for evidence
-  and the remaining live OAuth check.
+  The [Phase 3b verification log](phase-3b-verification.md) records the
+  repeated foundation checks and live OAuth acceptance.
 - [ ] **Phase 4: Monitor CRUD.** Create, edit, pause, resume, delete with
   config_rev semantics, atomic quotas (user, global, per-host), blocklist,
   canonical host, rate limits, plain-language rejection reasons.

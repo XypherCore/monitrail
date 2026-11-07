@@ -76,10 +76,15 @@ updated Phase 0–3 acceptance checks.
 
 ## Verification and remaining gates
 
+**Resolution on 2026-11-08.** All Phase 3b deltas are resolved. The
+[verification log](phase-3b-verification.md) records the repeated Phase 0–3
+checks, the live provider sign-ins and invite handling. The comparison above
+is retained as the approved rev 1 to rev 2 record.
+
 - **Baseline verified 2026-11-04.** Both workspace builds, lint and
   typecheck passed. The 96 web tests, 395 SSRF tests and four offline
   workerd tests passed. The configured-credential scan passed. These are
-  rev 1 regression results. Rev 2 acceptance remains open.
+  rev 1 regression results. The Phase 3b log records the rev 2 results.
 - **After approval.** Verify pinned dependencies and provider mode
   before any installation. Implement and test the schema and connection
   changes, auth and ownership boundaries, identity and redaction, then
@@ -94,8 +99,8 @@ updated Phase 0–3 acceptance checks.
   deployment with controlled direct, redirect and rebinding cases before
   relying on the platform boundary. If it fails, return to the owner for
   a safety or hosting decision. [Workers request resolution](https://developers.cloudflare.com/workers/runtime-apis/request/#the-cf-property)
-- **Phase 4 remains gated.** Rebase any useful draft pieces only after
-  Phase 3b passes. The draft's interval and expected-status inputs,
+- **Phase 4 handoff.** Rebase any useful draft pieces against the verified
+  rev 2 foundation. The draft's interval and expected-status inputs,
   quota environment settings, incident behavior and URL presentation
   differ from rev 2. Later-phase questions about lease ownership after
   reclaim, terminal 3xx handling and availability coverage can be

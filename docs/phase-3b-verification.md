@@ -2,7 +2,9 @@
 
 Phase 3b aligns the foundation from Phases 0–3 with the revised
 specification. The owner approved the [delta report](phase-3b-delta-report.md).
-The original Phase 0–3 verification logs document the earlier implementation.
+The original [Phase 0](phase-0-verification.md),
+[Phase 1](phase-1-verification.md), [Phase 2](phase-2-verification.md) and
+[Phase 3](phase-3-verification.md) logs document the earlier implementation.
 
 ## Scope and implementation
 
@@ -10,8 +12,8 @@ The original Phase 0–3 verification logs document the earlier implementation.
   presentation omits query values, and form controls use the stronger border
   token.
 - The new PostgreSQL migration adds the revised schema and cascade graph.
-  The disposable Supabase project received only synthetic fixture owners,
-  paused monitors and unpublished pages. The prior Neon database was preserved.
+  The initial Supabase seed used synthetic fixture owners, paused monitors
+  and unpublished pages. The prior Neon database was preserved.
 - Auth.js uses database sessions, provider-account IDs and hashed, single-use
   invitations. Email is optional. OAuth tokens stay out of the database.
   Ownership-sensitive association writes use transactions and composite
@@ -34,7 +36,7 @@ The original Phase 0–3 verification logs document the earlier implementation.
 | Browser verification | The production build passed over local HTTPS with hosted synthetic fixtures. Verified protected redirects, Secure and HttpOnly session cookies, sanitized session output, owner-only rendering at 360 and 1440 px, no-JavaScript content, and revocation on logout and account deletion. There were no console errors, failed required requests or external browser requests. |
 | Second-model review | Reviewed the schema, TLS, role, auth, access and SSRF boundaries. Changes include serialization of competing status-page writes, restricted pooler credentials, reduced role grants, safe process cleanup and a test for spoofed forwarding headers. |
 
-## Compatibility and remaining gates
+## Compatibility and later work
 
 - Pinned `next-auth@4.24.15` for the stable Auth.js path and
   `postgres@4.0.0` for the TLS-verified Supabase pooler connection. The
@@ -55,9 +57,7 @@ The original Phase 0–3 verification logs document the earlier implementation.
   ingress. This preserves the previous window and count while rejecting
   untrusted forwarded-address headers. On shared ingress, one client can
   temporarily exhaust that bucket for others.
-- Live GitHub and Google consent on this revised stack requires the owner.
-  The prior provider sign-ins were on rev 1. Phase 3b remains open while
-  this gate is pending.
+- Deployed Worker egress and capacity measurements remain Phase 5 checks.
 
 ## Local launcher follow-up
 
@@ -67,3 +67,16 @@ scripts now load local runtime configuration before invoking the Next CLI.
 The migration credential stays with the administrative commands. The
 original dev command reproduced the failure, and the updated command
 started on loopback and served the login page with HTTP 200.
+
+## Live OAuth acceptance on 2026-11-08
+
+The owner reported that the returning GitHub account signed in with the
+invite field blank and that Google signed in with a fresh invite. A
+different Google account was asked for a valid unused invite. An aggregate
+read through the restricted Supabase connection confirmed that both
+providers had provisioned accounts linked to redeemed invites. The query
+returned only booleans and provider names.
+
+The local browser smoke also passed protected redirects, owner-scoped
+rendering at 360 and 1440 px, and session revocation on logout. The earlier
+HTTPS smoke covers account-deletion revocation. Phase 3b is complete.
