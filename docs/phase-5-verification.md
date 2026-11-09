@@ -44,6 +44,28 @@ The private-DNS and rebinding cases still need a controlled DNS zone.
 Fixture lateness is measured from the synthetic due time to check start.
 
 The full batch exceeded the 10 ms Workers Free cron CPU budget. The owner
-chose to benchmark smaller batches on Workers Free. Phase 5 stays open
-while those runs and the private-DNS proof are pending. The global cap
-remains provisional. [Cloudflare Workers limits](https://developers.cloudflare.com/workers/platform/limits/)
+chose to stay on Workers Free and benchmark smaller batches.
+[Cloudflare Workers limits](https://developers.cloudflare.com/workers/platform/limits/)
+
+### Smaller batches on 2026-11-09
+
+The follow-up staging run cycled through one to five jobs on the same
+two-redirect, over-64-KiB workload. The fixture confirmed every job in the
+seven recorded ticks. Cloudflare reported the following CPU samples.
+
+| Jobs | CPU samples | Subrequests | Max fixture slot lateness |
+| ---: | --- | ---: | --- |
+| 1 | 7 ms, 9 ms | 5 | 54,455–55,059 ms |
+| 2 | 11 ms | 8 | 54,730 ms |
+| 3 | 11 ms | 11 | 55,247 ms |
+| 4 | 24 ms | 14 | 54,677 ms |
+| 5 | 20 ms, 22 ms | 17 | 54,553–54,605 ms |
+
+The one-job batch was the only tested size below the 10 ms budget in all
+recorded samples. These samples do not establish sustained fleet capacity.
+One job per minute provides five normal 5-minute slots before reserving
+capacity for confirmation checks. Both temporary Workers were removed.
+
+Phase 5 remains open. The batch size and global cap still need a sustained
+Free-tier capacity decision, and the owner confirmed that a domain for
+controlled private-DNS and rebinding tests is unavailable.
