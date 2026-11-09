@@ -40,7 +40,8 @@ the expected results. Both staging Workers were removed after the run.
 | Six direct and redirected literal egress blocks, plus a public canary | 6 ms, 7 ms | 6 in both runs | 46,528–46,736 ms |
 
 The literal tests rejected metadata, private IPv4 and localhost targets.
-The private-DNS and rebinding cases still need a controlled DNS zone.
+The private-DNS and rebinding cases still need a hostname with an editable
+DNS record.
 Fixture lateness is measured from the synthetic due time to check start.
 
 The full batch exceeded the 10 ms Workers Free cron CPU budget. The owner
@@ -66,6 +67,34 @@ recorded samples. These samples do not establish sustained fleet capacity.
 One job per minute provides five normal 5-minute slots before reserving
 capacity for confirmation checks. Both temporary Workers were removed.
 
-Phase 5 remains open. The batch size and global cap still need a sustained
-Free-tier capacity decision, and the owner confirmed that a domain for
-controlled private-DNS and rebinding tests is unavailable.
+### Guard optimization and repeat benchmark on 2026-11-09
+
+The Worker now reuses its byte-reader buffer and checks each hostname
+against the blocklist once per hop. It still validates every redirect and
+cancels the response body at 64 KiB. Independent review found no blocking
+issues. Build, lint, typecheck, 269 web tests, 349 checker tests, six native
+workerd tests and the credential scan passed.
+
+An isolated Cloudflare deployment repeated the same two-redirect workload
+with a 65,537-byte final body. The fixture accepted every expected result.
+The table counts unique scheduled ticks and excludes duplicate log events.
+Both staging Workers were removed after collection.
+
+| Jobs | CPU samples | Subrequests | Max fixture slot lateness |
+| ---: | --- | ---: | --- |
+| 1 | 12 ms, 28 ms | 5 | 24,811–24,909 ms |
+| 2 | 12 ms, 10 ms | 8 | 24,680–25,112 ms |
+| 3 | 10 ms, 11 ms | 11 | 24,810–25,403 ms |
+| 15 | 26 ms, 62 ms | 47 | 24,800–25,295 ms |
+
+The two single-job ticks exceeded the 10 ms budget. Every tested size had
+at least one sample above the budget. Completed ticks establish successful
+execution in staging, with no evidence of a sustainable batch size on the
+current Free-tier scheduler. The production batch size and global cap were
+left at their documented values pending the capacity decision.
+
+Phase 5 remains open for the checker capacity decision and the deployed
+private-DNS and rebinding checks. A disposable [Duck DNS name](https://www.duckdns.org/about.jsp)
+can provide the editable A record without buying a domain. Verify that the
+same hostname reaches a controlled public canary before the private DNS
+change, and verify the new DNS answer before repeating the deployed checks.
