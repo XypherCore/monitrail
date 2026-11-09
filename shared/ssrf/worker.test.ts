@@ -307,16 +307,18 @@ describe("Worker transport profile", () => {
     await expect(check).resolves.toEqual({ statusCode: 503, responseMs: 0, redirectCount: 0 });
   });
 
-  it("measures exactly the byte budget with native BYOB and returns no response material", async () => {
+  it.each([7000, 65536])("caps native BYOB reads with %i-byte fragments", async (fragmentSize) => {
     const { transport, guard } = fixture();
     let delivered = 0;
+    const requested: number[] = [];
     const cancel = vi.fn();
     const body = new ReadableStream({
       type: "bytes",
       pull(controller) {
         const request = controller.byobRequest;
         if (!request?.view) throw new Error("Expected BYOB");
-        const length = Math.min(request.view.byteLength, 7000);
+        requested.push(request.view.byteLength);
+        const length = Math.min(request.view.byteLength, fragmentSize);
         delivered += length;
         request.respond(length);
       },
@@ -331,6 +333,12 @@ describe("Worker transport profile", () => {
       redirectCount: 0,
     });
     expect(delivered).toBe(65536);
+    expect(requested).toEqual(
+      Array.from(
+        { length: Math.ceil(65536 / fragmentSize) },
+        (_, index) => 65536 - index * fragmentSize,
+      ),
+    );
     expect(cancel).toHaveBeenCalledOnce();
   });
 });

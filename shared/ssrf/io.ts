@@ -40,19 +40,23 @@ export async function discardBody(response: Response, signal: AbortSignal): Prom
   // Reject transports without byte readers. A default reader can deliver an
   // arbitrarily large chunk regardless of the remaining budget.
   const reader = response.body.getReader({ mode: "byob" });
-  let total = 0;
   try {
-    while (total < 65536) {
-      const chunk = await awaitSignal(
-        reader.read(new Uint8Array(Math.min(8192, 65536 - total))),
-        signal,
-      );
+    let remaining = 65536;
+    let buffer = new ArrayBuffer(remaining);
+    while (remaining > 0) {
+      const chunk = await awaitSignal(reader.read(new Uint8Array(buffer, 0, remaining)), signal);
       if (chunk.done) return;
-      if (!(chunk.value instanceof Uint8Array) || chunk.value.byteLength === 0)
+      if (
+        !(chunk.value instanceof Uint8Array) ||
+        chunk.value.byteLength === 0 ||
+        chunk.value.byteLength > remaining
+      ) {
         throw new Error("Invalid response stream.");
-      const length = chunk.value.byteLength;
-      // Target bytes are counted and discarded, never parsed or returned.
-      total += length;
+      }
+      // BYOB transfers the buffer back with each read. Reuse it without
+      // inspecting its contents, and expose only the remaining byte budget.
+      buffer = chunk.value.buffer;
+      remaining -= chunk.value.byteLength;
     }
   } finally {
     try {

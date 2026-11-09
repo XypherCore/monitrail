@@ -40,9 +40,9 @@ export function createWorkerGuard(dependencies: WorkerGuardDependencies) {
         } catch {
           return { errorType: "blocked", redirectCount };
         }
+        if (blocked(url.hostname)) return { errorType: "blocked", redirectCount };
         for (;;) {
           if (deadline.signal.aborted) return { errorType: "timeout", redirectCount };
-          if (blocked(url.hostname)) return { errorType: "blocked", redirectCount };
 
           const request = new AbortController();
           const abort = () => request.abort();
