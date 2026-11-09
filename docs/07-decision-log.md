@@ -34,6 +34,11 @@ first, then the code.
   ownership checks; cross-user attach, replace, publish and unlink tests.
 - **Duplicate and out-of-order results**: leases, single-use attempt IDs,
   config revisions, per-monitor row locks, server-computed `ok`.
+  Phase 5 requires the current unexpired lease. The attempt and lease share
+  an ID. Worker start times within the existing clock-skew allowance are
+  bounded to the observed lease window.
+- **Terminal redirects**: a redirect status without a Location header is
+  evaluated as the received 3xx status. Supplied destinations are guarded.
 - **Neon polling and capacity**: database moves to Supabase Free by default
   (Neon Launch is the paid fallback); Worker budget math and a benchmark
   replace the old estimate.

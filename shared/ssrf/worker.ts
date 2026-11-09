@@ -81,11 +81,14 @@ export function createWorkerGuard(dependencies: WorkerGuardDependencies) {
             }
             responseMs += elapsed;
 
-            if (isRedirectStatus(fetched.status)) {
+            const location = isRedirectStatus(fetched.status)
+              ? fetched.headers.get("location")
+              : null;
+            if (location !== null) {
               if (redirectCount === 2) return { errorType: "blocked", redirectCount };
               let next: URL;
               try {
-                next = parseRedirectTarget(fetched.headers.get("location"), url);
+                next = parseRedirectTarget(location, url);
                 if (blocked(next.hostname)) return { errorType: "blocked", redirectCount };
               } catch {
                 return { errorType: "blocked", redirectCount };

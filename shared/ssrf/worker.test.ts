@@ -84,6 +84,7 @@ describe("Worker transport profile", () => {
     "http://other.example:9000/",
     "http://u:p@other.example/",
     "https://a.BLOCKED.example./",
+    "",
   ])("blocks an unsafe redirect without opening its connection: %s", async (location) => {
     const { transport, guard } = fixture([{ host: "blocked.example", includeSubdomains: true }]);
     transport.mockImplementation(async () => redirect(location));
@@ -192,18 +193,37 @@ describe("Worker transport profile", () => {
     expect(error).not.toHaveBeenCalled();
   });
 
-  it("never follows a malformed or missing Location but reports nonredirect 304", async () => {
+  it("reports a redirect without Location and a nonredirect 304 as terminal responses", async () => {
     const { transport, guard } = fixture();
     transport
       .mockResolvedValueOnce(new Response(null, { status: 302 }))
       .mockResolvedValueOnce(new Response(null, { status: 304, headers: { Location: "/unused" } }));
-    await expect(guard.check(initial)).resolves.toEqual({ errorType: "blocked", redirectCount: 0 });
+    await expect(guard.check(initial)).resolves.toEqual({
+      statusCode: 302,
+      responseMs: expect.any(Number),
+      redirectCount: 0,
+    });
     await expect(guard.check(initial)).resolves.toEqual({
       statusCode: 304,
       responseMs: expect.any(Number),
       redirectCount: 0,
     });
     expect(transport).toHaveBeenCalledTimes(2);
+  });
+
+  it("reports terminal headers after two redirects when the third response has no Location", async () => {
+    vi.useFakeTimers();
+    const { transport, guard } = fixture();
+    const delayed = (response: Response) => () =>
+      new Promise<Response>((resolve) => setTimeout(() => resolve(response), 30));
+    transport
+      .mockImplementationOnce(delayed(redirect("/first")))
+      .mockImplementationOnce(delayed(redirect("/second")))
+      .mockImplementationOnce(delayed(new Response(null, { status: 307 })));
+    const check = guard.check(initial);
+    await vi.runAllTimersAsync();
+    await expect(check).resolves.toEqual({ statusCode: 307, responseMs: 90, redirectCount: 2 });
+    expect(transport).toHaveBeenCalledTimes(3);
   });
 
   it("rejects Location control characters before parsing could erase empty userinfo", async () => {

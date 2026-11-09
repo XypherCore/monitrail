@@ -1,6 +1,7 @@
 import { checkerUserAgent } from "../../shared/identity.ts";
 import { createWorkerGuard } from "../../shared/ssrf/index.ts";
 import type { WorkerCheckResult } from "../../shared/ssrf/worker.ts";
+import { runCheckTick } from "../src/tick.ts";
 
 const target = "https://public.example/";
 const appUrl = "https://monitor.example";
@@ -155,5 +156,22 @@ export const checksNativeFetch = {
     const overLimit = await guard.check("https://public.example/chain/0");
     requireBlocked(overLimit);
     requireCondition(overLimit.redirectCount === 2, "Worker may follow at most two redirects.");
+  },
+};
+
+export const runsSignedTickThroughNativeFetch = {
+  async test() {
+    const metrics = await runCheckTick(
+      { APP_URL: appUrl, INTERNAL_HMAC_SECRET: "synthetic-offline-worker-test-secret" },
+      { now: () => Date.parse("2026-11-08T00:00:12.000Z") },
+    );
+    requireCondition(
+      metrics.outcome === "completed" &&
+        metrics.jobs === 2 &&
+        metrics.subrequests === 3 &&
+        metrics.accepted === 2 &&
+        metrics.maxSlotLatenessMs === 12000,
+      "Expected signed claim, one permitted target, and signed ingest.",
+    );
   },
 };

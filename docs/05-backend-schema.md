@@ -152,7 +152,9 @@ fire concurrent creates and assert the cap holds.
          m.expected_status, m.lease_id;
   ```
   then inserts one `check_attempts` row per job, updates `system_heartbeat`,
-  runs the outbox retry sweep, and returns jobs plus the blocklist snapshot.
+  runs the outbox retry sweep once Phase 7 enables delivery, and returns
+  jobs plus the blocklist snapshot. Each job includes `due_at` for slot
+  lateness measurement. Its lease UUID is also its attempt ID.
 - `POST /api/internal/ingest` body `{results: [{attempt_id, monitor_id,
   config_rev, started_at, status_code?, response_ms?, error_type?,
   redirect_count}]}`. One transaction per result; rules in doc 02. Returns

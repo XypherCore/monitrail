@@ -54,7 +54,8 @@ connections awaiting headers at once, 10 ms CPU per cron invocation (waiting
 on I/O is not CPU), 5 cron triggers per account, 100,000 requests/day.
 - Per tick: claim (1) + ingest (1) + target requests. Redirects are followed
   manually, at most 2, so one monitor costs at most 3 subrequests.
-- Claim at most 15 monitors per tick: 2 + 15 x 3 = 47 <= 50.
+- Claim at most 15 monitors per tick: 2 + 15 x 3 = 47. One ingest retry
+  brings the maximum to 48, within the 50-subrequest limit.
 - No DNS-over-HTTPS per check in the Worker (it would double the budget).
   DNS is validated in the web app (see SSRF guard).
 - 15 checks per minute supports about 75 monitors at a 5-minute interval
@@ -69,17 +70,27 @@ on I/O is not CPU), 5 cron triggers per account, 100,000 requests/day.
   `FOR UPDATE SKIP LOCKED`, sets `lease_id` and `lease_until = now + 120 s`,
   and inserts one `check_attempts` row per job (`attempt_id` uuid,
   `monitor_id`, `config_rev`, snapshot of `expected_status`).
-- Each job sent to the Worker carries `attempt_id` and `config_rev`.
+- Each job sent to the Worker carries `attempt_id`, `config_rev`, and
+  `due_at` for measuring slot lateness.
+- The attempt ID is the lease ID. A result needs the monitor's current,
+  unexpired lease even when no subsequent claim has run.
 - `ingest` processes each result in its own transaction: lock the monitor row
   (`FOR UPDATE`), then accept the result only if the attempt exists and is
   `claimed`, `config_rev` equals the monitor's current value, and the result
-  is newer than `last_checked_at`. Otherwise mark the attempt `dropped` and
-  apply nothing. Each attempt is accepted at most once.
+  is newer than `last_checked_at`. Invalid observations for a matching
+  claimed attempt make it terminal. Its state is `expired` if the lease
+  elapsed, or `dropped` otherwise. Replays and mismatched monitor IDs
+  leave existing results and other attempts intact. Each attempt is
+  accepted at most once.
 - The server computes `ok` itself from `status_code`, `error_type` and the
   attempt's `expected_status` snapshot. The Worker does not decide success.
+- When the Worker start time is outside the lease's observed time window
+  by no more than the existing 60 s clock-skew allowance, record the nearest
+  valid time between claim and database receipt. Drop results outside that
+  allowance.
 - The response lists per attempt: accepted, dropped, or error. The Worker
-  retries a failed whole batch once; replays are harmless because attempts
-  are single-use.
+  retries the same batch once after a failed request or a transaction error.
+  A replay cannot change a check that already committed.
 
 ## Incident state machine (constants in one file, covered by tests)
 ```
@@ -151,7 +162,9 @@ supplied.
   webhook type accepts an arbitrary HTTPS host.
 - **Checker profile (Worker)**: static rules, the blocklist snapshot from the
   claim response, manual redirects (max 2) with every hop re-validated, 10 s
-  total timeout, body cap 64 KB. A Worker cannot pin the resolved IP.
+  total timeout, body cap 64 KB. A redirect status without a Location header
+  is a terminal HTTP response. A supplied Location still has to pass the
+  redirect rules. A Worker cannot pin the resolved IP.
   Compensating controls: (1) DNS is checked in the web app at creation and
   for every monitor by the daily maintenance job (it pauses monitors whose
   hosts now resolve to non-public addresses); (2) the Worker returns only a
@@ -247,7 +260,9 @@ Worker.
 - Subscriptions: new monitors default to all verified channels (toggle at
   creation). Removing a channel stops future events; adding one does not
   backfill. A recovery alert goes only to channels that received the down
-  alert.
+  alert. If the corresponding down delivery is still pending, defer the
+  recovery until the down delivery is recorded as sent. Discard the
+  recovery if the down delivery fails permanently.
 - Generic webhook payload v1: `{ "version": 1, "event": "incident.opened" |
   "incident.resolved", "event_id", "monitor": {"name"}, "incident":
   {"started_at","confirmed_at","resolved_at","cause"}, "sent_at" }`.

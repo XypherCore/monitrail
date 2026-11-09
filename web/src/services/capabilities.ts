@@ -1,5 +1,4 @@
 import type { BlockedHost } from "../../../shared/ssrf/blocklist.ts";
-import type { WorkerCheckResult } from "../../../shared/ssrf/worker.ts";
 
 export type ClaimedCheck = Readonly<{
   attemptId: string;
@@ -7,14 +6,19 @@ export type ClaimedCheck = Readonly<{
   configRev: number;
   url: string;
   expectedStatus: "2xx" | "2xx_3xx";
+  dueAt: Date;
 }>;
 
-export type AttemptResult = WorkerCheckResult &
+export type AttemptResult = (
+  | { statusCode: number; responseMs: number }
+  | { errorType: "blocked" | "connect" | "dns" | "other" | "timeout" | "tls" }
+) &
   Readonly<{
     attemptId: string;
     monitorId: string;
     configRev: number;
     startedAt: Date;
+    redirectCount: number;
   }>;
 
 /**

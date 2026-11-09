@@ -54,7 +54,7 @@ Status legend: [ ] open, [~] in progress, [x] done
   See the [Phase 4 verification log](phase-4-verification.md).
 
 ## Week 2 — Checking and dashboard
-- [ ] **Phase 5: Checker, claim and ingest.** Worker cron, signed requests
+- [~] **Phase 5: Checker, claim and ingest.** Worker cron, signed requests
   (canonical string, nonce, skew), leases, attempts, server-side `ok`,
   state machine with the constants and timing rule in doc 02.
   Done when: unit tests simulate flap, sustained outage, recovery, slow
@@ -65,6 +65,7 @@ Status legend: [ ] open, [~] in progress, [x] done
   or `localhost`; a benchmark records CPU per tick, subrequests used and slot
   lateness at 15 jobs and sets the real global cap (replace 50 in docs 01,
   02, 05).
+  See the [Phase 5 verification log](phase-5-verification.md).
 - [ ] **Phase 6: Dashboard and detail pages.** All states, availability with
   coverage and "Not enough data", average and p95, buckets and gaps, daily
   bar, incident log with closure reasons.
