@@ -40,8 +40,6 @@ the expected results. Both staging Workers were removed after the run.
 | Six direct and redirected literal egress blocks, plus a public canary | 6 ms, 7 ms | 6 in both runs | 46,528–46,736 ms |
 
 The literal tests rejected metadata, private IPv4 and localhost targets.
-The private-DNS and rebinding cases still need a hostname with an editable
-DNS record.
 Fixture lateness is measured from the synthetic due time to check start.
 
 The full batch exceeded the 10 ms Workers Free cron CPU budget. The owner
@@ -93,8 +91,33 @@ execution in staging, with no evidence of a sustainable batch size on the
 current Free-tier scheduler. The production batch size and global cap were
 left at their documented values pending the capacity decision.
 
-Phase 5 remains open for the checker capacity decision and the deployed
-private-DNS and rebinding checks. A disposable [Duck DNS name](https://www.duckdns.org/about.jsp)
-can provide the editable A record without buying a domain. Verify that the
-same hostname reaches a controlled public canary before the private DNS
-change, and verify the new DNS answer before repeating the deployed checks.
+### Deployed private DNS and rebinding test on 2026-11-09
+
+A temporary authenticated Cloudflare Worker ran the production SSRF guard
+with the checker's compatibility date and ordinary outbound `fetch`. A
+disposable Vercel project served a bodyless public response and a fixed
+redirect to the Duck DNS test hostname. A separate public control used the
+Vercel alias directly.
+
+The Duck DNS hostname first pointed to the IPv4 address recommended by
+Vercel. After the public baseline, the owner switched its A record to
+`10.255.255.254`. Two authoritative Duck DNS servers and Cloudflare's
+recursive resolver confirmed that private answer with no AAAA record.
+The same deployed probe repeated the checks after DNS propagation.
+
+| DNS answer | Direct check | Through the controlled redirect | Separate public control |
+| --- | --- | --- | --- |
+| Public Vercel IPv4 | HTTP 204, one redirect | HTTP 204, two redirects | HTTP 204 |
+| Private IPv4, three runs | HTTP 530, zero redirects | HTTP 530, one redirect | HTTP 204 |
+
+The switch to the private DNS answer produced a repeatable failure
+consistent with Cloudflare's documented origin DNS error. The probe
+recorded only status codes and redirect counts, so the exact provider error
+and connection-level behavior are unconfirmed. This test exercised a DNS
+change between checks. [Cloudflare HTTP 530](https://developers.cloudflare.com/support/troubleshooting/http-status-codes/cloudflare-5xx-errors/error-530/)
+
+The temporary Cloudflare Workers and Vercel project were removed after
+the test.
+
+Phase 5 remains open for the checker capacity decision and measured global
+cap.
