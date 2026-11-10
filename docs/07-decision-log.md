@@ -53,6 +53,12 @@ first, then the code.
 - **Deletion**: explicit cascade table and a populated-account test.
 - **Checker contract**: the claim returns immutable config; the server
   computes `ok`; method and timeout are fixed, not configurable.
+- **Free checker scheduling**: the one-minute Cron sends a fixed marker to
+  a private Cloudflare Queue. The consumer runs the signed check tick and
+  discards markers older than one scheduling interval. The owner selected
+  this path after direct Cron exceeded its CPU budget and the disposable
+  Queue consumer completed full batches. The integrated deployment and
+  load tests determine the global monitor cap.
 - **Pause, resume, edit semantics**: one `is_paused` flag, `config_rev`,
   explicit incident closure reasons, no recovery alerts on closure.
   Phase 4 owner decisions keep the next scheduled check on interval-only
@@ -93,4 +99,3 @@ first, then the code.
 2. Hosting plan and commercial status (doc 02, "Hosting terms").
 3. Open-source license and domain (see doc 01).
 4. Global monitor cap: replaced by the phase 5 measurement.
-5. Whether the Worker moves to the paid plan if CPU per tick exceeds 10 ms.

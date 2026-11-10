@@ -87,6 +87,9 @@ export const rejectsBlockedHosts = {
       },
     });
     requireBlocked(await guard.check("https://sub.EXAMPLE.com./"));
+    requireBlocked(await guard.check("http://localhost/"));
+    requireBlocked(await guard.check("http://192.168.1.1/"));
+    requireBlocked(await guard.check("http://169.254.169.254/"));
     requireBlocked(await guard.check("http://[::ffff:169.254.169.254]/"));
     requireCondition(!called, "Policy denial must precede target fetching.");
   },

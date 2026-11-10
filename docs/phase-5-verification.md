@@ -148,10 +148,43 @@ object once per batch by design. The object used 36–47 ms of CPU per batch.
 The owner chose the existing Cron architecture, and both trial Workers
 were removed.
 
-Phase 5 remains open for an owner decision on the checker plan and a
-deployed benchmark that supports the global cap. The load model at 15
-jobs per minute compared 40 and 50 monitors. Sustained flapping averaged
-13.33 jobs per minute at 40 and saturated the scheduler at 50. That model
-assumes sufficient CPU for a full batch. It also found that rescheduling
-from result acceptance can shift a check or confirmation to a later Cron
-tick, so the Phase 11 missed-check metric needs deployed cadence evidence.
+The load model at 15 jobs per minute compared 40 and 50 monitors. Sustained
+flapping averaged 13.33 jobs per minute at 40 and saturated the scheduler at
+50. The model assumes sufficient CPU for a full batch. It also found that
+rescheduling from result acceptance can shift a check or confirmation to a
+later Cron tick, so the Phase 11 missed-check metric needs deployed cadence
+evidence.
+
+### Free Queue handoff on 2026-11-10
+
+The owner authorized a private Queue handoff and a 40-monitor cap
+conditional on scheduled, load and egress verification. The one-minute
+Cron enqueues one fixed marker. The consumer skips stale markers and runs
+the signed checker for fresh ones. The queue carries no monitor data or
+credentials.
+
+The first disposable Queue trial completed 20 test-triggered 15-job
+batches. The fixture accepted every result. Consumer CPU ranged from 33 to
+55 ms, queue delivery ranged from 117 to 4,660 ms, and each tick made 47
+subrequests. Three scheduled prototype ticks also accepted all 15 results
+each, at 23–47 ms CPU and 47 subrequests. Queue delivery took 1,974–2,477 ms
+and maximum fixture slot lateness was 13,886–14,640 ms. The prototype
+resources were removed.
+
+A separate test ran the signed checker and real claim, nonce, ingest and
+incident code against a freshly migrated native PostgreSQL 18 database.
+Forty synchronized monitors drained in batches of 15, 15 and 10 in each
+of five rounds. The database recorded 200 distinct checks, 40 recovered
+incidents, 40 down and 40 up outbox rows, and released every lease. A lost
+ingest reply retried within 48 subrequests. Replayed results were dropped,
+and an exact signed nonce replay returned HTTP 401 with `no-store`. The
+fixture advanced due dates between rounds to exercise both normal and
+confirmation scheduling.
+
+The checker uses Cloudflare's public routing setting for same-zone
+requests. The earlier literal egress test covered direct targets and
+redirects. The offline workerd suite now matches the checker's
+compatibility date and public routing flag, with an isolated transport
+that fails the test if the guard attempts a fetch for a blocked direct
+target. The Queue changes how a check starts. The same guard still
+validates each target and redirect.

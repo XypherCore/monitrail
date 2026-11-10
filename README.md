@@ -62,14 +62,16 @@ commit or print secret values.
 
 The web app includes a landing page, OAuth login, and a protected workspace
 for creating, editing, pausing, resuming and deleting monitors.
-The checker runs on a one-minute schedule when deployed and configured.
-It uses `APP_URL` and `INTERNAL_HMAC_SECRET` to claim work and submit results
-through the signed web API. See the [Phase 5 verification log](docs/phase-5-verification.md)
+The checker runs on a one-minute schedule through a private Cloudflare
+Queue. Create `monitrail-check-ticks` in the target Cloudflare account
+before deploying the checker. The consumer uses `APP_URL` and
+`INTERNAL_HMAC_SECRET` to claim work and submit results through the signed
+web API. See the [Phase 5 verification log](docs/phase-5-verification.md)
 for staging evidence and the deployment gates.
 Database lifecycle commands are administrative scripts. The server-only auth
 persistence boundary and application DAL are separate. The SSRF guard is
 used for monitor URL validation. See the [Phase 4 verification log](docs/phase-4-verification.md).
-No project has been deployed or connected to a remote Git repository.
+Phase 11 covers production deployment and public source release.
 
 Tool telemetry is disabled in Next.js dev/build/start and Wrangler scripts.
 The local Git identity is the project alias `Monitrail <dev@monitrail.invalid>`;

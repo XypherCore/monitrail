@@ -8,7 +8,7 @@
 | Database | PostgreSQL on Supabase free plan (default). Fallback: Neon Launch |
 | ORM / migrations | Drizzle ORM + drizzle-kit |
 | Auth | OAuth (GitHub, Google) via Auth.js, database sessions |
-| Checker | Cloudflare Worker (TypeScript), Cron Triggers |
+| Checker | Cloudflare Worker (TypeScript), Cron Triggers, private Cloudflare Queue |
 | Web hosting | Vercel (see "Hosting terms") |
 | Alerts | Telegram Bot API, Discord, Slack, generic webhook |
 | Tests | Vitest (unit), Playwright (smoke and cache-revocation) |
@@ -38,6 +38,8 @@ also limited to about one run per day, so scheduling never uses Vercel cron.
 ## Architecture
 ```
 Cloudflare Worker, cron every minute
+  Enqueue one fixed marker on the private check queue
+Same Worker, queue consumer
   1. POST {APP_URL}/api/internal/claim   -> up to 15 leased jobs + blocklist
   2. fetch targets (6 at a time, SSRF-guarded, 10 s timeout)
   3. POST {APP_URL}/api/internal/ingest  -> results
@@ -45,16 +47,27 @@ Cloudflare Worker, cron every minute
 Web app (Vercel)
   claim: atomic lease; ingest: serialized state machine + outbox rows
   after ingest: delivers alerts from the outbox (post-response execution)
-Postgres: the only state. The Worker holds no database credentials.
+Postgres: durable application state. The Worker holds no database credentials.
 ```
+
+The `monitrail-check-ticks` queue carries only a fixed marker. Each batch
+contains one message, with zero batching delay, one concurrent consumer,
+and zero delivery retries. A marker that has waited at least one scheduling
+interval is acknowledged and skipped. Cloudflare can deliver a fresh
+marker more than once. PostgreSQL claims and attempt IDs prevent duplicate
+results. The checker still retries a failed signed ingest once.
 
 ### Worker budget (verified Cloudflare Workers Free, Nov 2026)
 50 subrequests per invocation (fetch and bindings both count), 6 outgoing
 connections awaiting headers at once, 10 ms CPU per cron invocation (waiting
 on I/O is not CPU), 5 cron triggers per account, 100,000 requests/day.
-- Per tick: claim (1) + ingest (1) + target requests. Redirects are followed
+- The Cron invocation makes one queue write. At one marker per minute, normal
+  delivery uses about 4,320 of the Free plan's 10,000 queue operations/day
+  across sends, reads and deletes. The scheduled benchmark measures actual
+  consumer CPU, delivery delay and slot lateness. [Queues pricing](https://developers.cloudflare.com/queues/platform/pricing/)
+- Per consumer invocation: claim (1) + ingest (1) + target requests. Redirects are followed
   manually, at most 2, so one monitor costs at most 3 subrequests.
-- Claim at most 15 monitors per tick: 2 + 15 x 3 = 47. One ingest retry
+- Claim at most 15 monitors per consumer invocation: 2 + 15 x 3 = 47. One ingest retry
   brings the maximum to 48, within the 50-subrequest limit.
 - No DNS-over-HTTPS per check in the Worker (it would double the budget).
   DNS is validated in the web app (see SSRF guard).
@@ -62,8 +75,10 @@ on I/O is not CPU), 5 cron triggers per account, 100,000 requests/day.
   before confirmation retries. Provisional global cap: **50 monitors**.
   Phase 5 benchmarks CPU per tick, subrequests used, and slot lateness; the
   measured result replaces 50.
-- If CPU exceeds 10 ms at 15 jobs, reduce the batch, or move the Worker to
-  the paid plan (decision for the owner). Never lower safety checks to fit.
+- Direct Cron exceeded 10 ms even for some single-job checks. The owner chose
+  the Free Queue handoff after a disposable trial ran all 20 full batches.
+  Validate capacity on the integrated scheduled consumer before closing
+  Phase 5. Keep the SSRF guard and its existing bounds.
 
 ## Check leases and attempts
 - `claim` atomically selects due, unpaused, unleased monitors with
@@ -165,6 +180,9 @@ supplied.
   total timeout, body cap 64 KB. A redirect status without a Location header
   is a terminal HTTP response. A supplied Location still has to pass the
   redirect rules. A Worker cannot pin the resolved IP.
+  `global_fetch_strictly_public` routes same-zone requests through
+  Cloudflare's public endpoint, where public routing rules apply.
+  [Cloudflare fetch routing](https://developers.cloudflare.com/workers/configuration/compatibility-flags/#global-fetch-strictly-public)
   Compensating controls: (1) DNS is checked in the web app at creation and
   for every monitor by the daily maintenance job (it pauses monitors whose
   hosts now resolve to non-public addresses); (2) the Worker returns only a

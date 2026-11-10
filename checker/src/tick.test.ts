@@ -1,7 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { Transport } from "../../shared/ssrf/io.ts";
-import worker from "./index.ts";
-import { CHECK_CRON, runCheckTick } from "./tick.ts";
+import { runCheckTick } from "./tick.ts";
 
 const env = {
   APP_URL: "https://app.example",
@@ -312,21 +311,5 @@ describe("checker tick", () => {
       subrequests: 0,
     });
     expect(transport).not.toHaveBeenCalled();
-  });
-
-  it("keeps the fetch endpoint closed and uses only the configured cron", async () => {
-    const transport = vi.fn<Transport>(async () => claim());
-    vi.stubGlobal("fetch", transport);
-    const log = vi.spyOn(console, "log").mockImplementation(() => {});
-    expect(worker.fetch().status).toBe(404);
-    await worker.scheduled({ cron: "0 0 * * *" } as ScheduledController, env);
-    expect(transport).not.toHaveBeenCalled();
-    await worker.scheduled({ cron: CHECK_CRON } as ScheduledController, env);
-    expect(transport).toHaveBeenCalledOnce();
-    expect(log).toHaveBeenCalledExactlyOnceWith(
-      "checker_tick",
-      expect.objectContaining({ outcome: "idle", subrequests: 1 }),
-    );
-    expect(JSON.stringify(log.mock.calls)).not.toContain(env.INTERNAL_HMAC_SECRET);
   });
 });
