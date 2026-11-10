@@ -119,5 +119,39 @@ change between checks. [Cloudflare HTTP 530](https://developers.cloudflare.com/s
 The temporary Cloudflare Workers and Vercel project were removed after
 the test.
 
-Phase 5 remains open for the checker capacity decision and measured global
-cap.
+### Scheduled CPU diagnostic on 2026-11-09
+
+A disposable Worker ran the current signed checker against a synthetic
+fixture. Each captured workload has one unique scheduled sample. The
+staging wrapper logged the workload selected by the signed claim
+timestamp. The fixture accepted every submitted result.
+
+| Workload | CPU | Subrequests | Max fixture slot lateness |
+| --- | ---: | ---: | ---: |
+| Empty claim | 2 ms | 1 | — |
+| One direct check, bodyless HTTP 204 | 7 ms | 3 | 1,590 ms |
+| One check with two redirects, bodyless HTTP 204 | 11 ms | 5 | 1,922 ms |
+| One check with two redirects, 65,537-byte body | 7 ms | 5 | 1,766 ms |
+| Fifteen checks with two redirects and 65,537-byte bodies | 66 ms | 47 | 1,775 ms |
+
+The interrupted collection retained one sample per workload. The two
+temporary Workers were removed when work resumed. These samples show
+variation across ticks and are too sparse to isolate the CPU cost of
+redirects or body reads. Combined with the earlier 12 ms and 28 ms
+single-job runs, the measurements leave the current Free checker without
+a verified batch size under its 10 ms CPU budget. Cloudflare can complete
+occasional invocations above that limit. [Cloudflare CPU limits](https://developers.cloudflare.com/workers/platform/limits/#cpu-time)
+
+A separate Durable Object trial completed eight test-triggered batches of
+15 checks. Each used 47 outbound subrequests. The test trigger called the
+object once per batch by design. The object used 36–47 ms of CPU per batch.
+The owner chose the existing Cron architecture, and both trial Workers
+were removed.
+
+Phase 5 remains open for an owner decision on the checker plan and a
+deployed benchmark that supports the global cap. The load model at 15
+jobs per minute compared 40 and 50 monitors. Sustained flapping averaged
+13.33 jobs per minute at 40 and saturated the scheduler at 50. That model
+assumes sufficient CPU for a full batch. It also found that rescheduling
+from result acceptance can shift a check or confirmation to a later Cron
+tick, so the Phase 11 missed-check metric needs deployed cadence evidence.
