@@ -193,12 +193,15 @@ describe("public Auth.js request boundary", () => {
   it("rejects absent, wrong-state, wrong-provider and forged context before OAuth work", async () => {
     const f = fixture();
     const cookie = await f.start();
+    const signatureStart = cookie.lastIndexOf(".") + 1;
+    const replacement = cookie[signatureStart] === "A" ? "B" : "A";
+    const forged = `${cookie.slice(0, signatureStart)}${replacement}${cookie.slice(signatureStart + 1)}`;
     f.rawHandler.mockClear();
     for (const [provider, returned, context] of [
       ["github", state, ""],
       ["github", "different-state", cookie],
       ["google", state, cookie],
-      ["github", state, `${cookie.slice(0, -1)}x`],
+      ["github", state, forged],
     ]) {
       const response = await f.handle(
         new Request(`${origin}/api/auth/callback/${provider}?state=${returned}&code=fixture`, {
