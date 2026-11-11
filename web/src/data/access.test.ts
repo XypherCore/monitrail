@@ -3,6 +3,7 @@ import { drizzle } from "drizzle-orm/pglite";
 import { migrate } from "drizzle-orm/pglite/migrator";
 import { fileURLToPath } from "node:url";
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
+import type { MonitorRange } from "../monitors/insight-types.ts";
 import { createDataAccess, DataAccessError } from "./access.ts";
 
 const ownerA = "10000000-0000-4000-8000-000000000001";
@@ -179,6 +180,107 @@ describe("ownership data-access layer against PostgreSQL migrations", () => {
     expect(await a.listPageMonitors(pageB)).toEqual([]);
     expect(await a.listAlertOutbox(incidentA)).toHaveLength(1);
     expect(await a.listAlertOutbox(incidentB)).toEqual([]);
+  });
+
+  it("restricts monitor summaries and insights to the owner and masks the target URL", async () => {
+    await client.query("UPDATE monitors SET url=$2 WHERE id=$1", [
+      monitorA,
+      "https://a.example.invalid/status?token=fixture-private#private-fragment",
+    ]);
+    const access = createDataAccess(db, ownerA, () => clock);
+    const summaries = await access.listMonitorSummaries();
+    expect(summaries).toMatchObject([
+      {
+        id: monitorA,
+        url: "https://a.example.invalid/status?…",
+        averageMs: 42,
+        openIncidentStartedAt: clock,
+      },
+    ]);
+    const detail = await access.getMonitorInsights(monitorA, "24h");
+    expect(detail).toMatchObject({
+      monitor: { id: monitorA, url: "https://a.example.invalid/status?…" },
+      openIncidentStartedAt: clock,
+    });
+    const output = JSON.stringify({ summaries, detail });
+    expect(output).not.toMatch(/fixture-private|private-fragment|ownerId|userId/);
+    expect(await access.getMonitorInsights(monitorB, "24h")).toBeNull();
+    expect(await access.getMonitorInsights(missing, "24h")).toBeNull();
+    expect((await createDataAccess(db, ownerB, () => clock).listMonitorSummaries()).map((row) => row.id))
+      .toEqual([monitorB]);
+  });
+
+  it("rejects malformed insight inputs before issuing a query", async () => {
+    const execute = vi.fn();
+    const access = createDataAccess({ execute }, ownerA, () => clock);
+    await expect(access.getMonitorInsights("' OR true--", "24h")).rejects.toThrow(DataAccessError);
+    await expect(access.getMonitorInsights(monitorA, "toString" as MonitorRange))
+      .rejects.toThrow(DataAccessError);
+    expect(execute).not.toHaveBeenCalled();
+  });
+
+  it("includes all checks in the range and filters future and foreign samples", async () => {
+    await client.query(
+      "UPDATE monitors SET created_at=$2::timestamptz-interval '24 hours' WHERE id=$1",
+      [monitorA, clock],
+    );
+    await client.query(
+      `INSERT INTO checks(attempt_id,monitor_id,config_rev,checked_at,ok,status_code,response_ms)
+       SELECT md5('metrics-check-' || n)::uuid,$1,1,$2::timestamptz-n*interval '5 minutes',true,200,110
+       FROM generate_series(1,120) AS n`,
+      [monitorA, clock],
+    );
+    await client.query(
+      `INSERT INTO checks(attempt_id,monitor_id,config_rev,checked_at,ok,status_code,response_ms)
+       VALUES (gen_random_uuid(),$1,1,$3::timestamptz+interval '1 second',true,200,900),
+              (gen_random_uuid(),$2,1,$3,true,200,900)`,
+      [monitorA, monitorB, clock],
+    );
+    const access = createDataAccess(db, ownerA, () => clock);
+    expect(await access.listMonitorSummaries()).toMatchObject([{ averageMs: (120 * 110 + 42) / 121 }]);
+    expect((await access.getMonitorInsights(monitorA, "24h"))?.insights.latency).toMatchObject({
+      samples: 121,
+      averageMs: (120 * 110 + 42) / 121,
+    });
+  });
+
+  it("reads the pre-window check, inherited pause and overlapping incident for summaries", async () => {
+    await client.query(
+      "UPDATE monitors SET created_at=$2::timestamptz-interval '27 hours' WHERE id=$1",
+      [monitorA, clock],
+    );
+    await client.query(
+      `INSERT INTO checks(attempt_id,monitor_id,config_rev,checked_at,ok,status_code,response_ms)
+       SELECT md5('boundary-check-' || n)::uuid,$1::uuid,1,$2::timestamptz-n*interval '1 minute',true,200,110
+       FROM generate_series(1,1436,5) AS n
+       UNION ALL SELECT gen_random_uuid(),$1::uuid,1,$2::timestamptz-interval '24 hours 4 minutes',true,200,110`,
+      [monitorA, clock],
+    );
+    const access = createDataAccess(db, ownerA, () => clock);
+    const [beforeIncident] = await access.listMonitorSummaries();
+    expect(beforeIncident.availability).toEqual({ coverage: 1, percent: 100 });
+
+    await client.query(
+      `UPDATE incidents SET started_at=$2::timestamptz-interval '25 hours',
+          confirmed_at=$2::timestamptz-interval '25 hours',
+          resolved_at=$2::timestamptz-interval '23 hours',resolved_reason='recovered',
+          resolved_confirmed_at=$2::timestamptz-interval '23 hours'
+       WHERE id=$1`,
+      [incidentA, clock],
+    );
+    const [withIncident] = await access.listMonitorSummaries();
+    expect(withIncident.availability.coverage).toBe(1);
+    expect(withIncident.availability.percent).toBeCloseTo(100 * (23 / 24));
+
+    await client.query(
+      `INSERT INTO monitor_events(monitor_id,kind,at)
+       VALUES ($1,'blocked',$2::timestamptz-interval '25 hours'),
+              ($1,'resumed',$2::timestamptz-interval '23 hours')`,
+      [monitorA, clock],
+    );
+    const [afterPause] = await access.listMonitorSummaries();
+    expect(afterPause.availability.coverage).toBeCloseTo(23 / 24);
+    expect(afterPause.availability.percent).toBe(100);
   });
 
   it("scopes relationship edits to the owner in the modifying statement", async () => {

@@ -65,11 +65,12 @@ Status legend: [ ] open, [~] in progress, [x] done
   or `localhost`; a scheduled benchmark records consumer CPU, subrequests,
   queue delay and slot lateness at 15 jobs and sets the global monitor cap.
   See the [Phase 5 verification log](phase-5-verification.md).
-- [ ] **Phase 6: Dashboard and detail pages.** All states, availability with
+- [x] **Phase 6: Dashboard and detail pages.** All states, availability with
   coverage and "Not enough data", average and p95, buckets and gaps, daily
   bar, incident log with closure reasons.
   Done when: every worked example in doc 05 reproduces exactly from seeded
   data; Unknown appears when checks stop; 360 px layout verified.
+  See the [Phase 6 verification log](phase-6-verification.md).
 
 ## Week 3 — Alerts and public pages
 - [ ] **Phase 7: Alerts.** Channels CRUD with the encryption envelope, key

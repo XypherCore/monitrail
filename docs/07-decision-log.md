@@ -75,6 +75,10 @@ first, then the code.
   state machine now agree; observed onset and confirmation are separate.
 - **Availability**: time-based, coverage-aware, with worked examples, so a
   dead checker cannot produce a fake 100%.
+- **Dashboard freshness**: the owner chose to exclude the full trailing
+  gap once a monitor becomes Unknown, preserving confirmed incident time.
+  Unknown links to that monitor's check history. The dashboard and detail
+  refresh once per minute in a visible tab.
 - **Latency definitions**, bucket sizes and no-data rendering.
 - **Maintenance**: idempotent endpoint, defined caller, no rollups needed.
 - **Storage**: budget and 90% health failure.

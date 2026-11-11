@@ -1,4 +1,12 @@
 import { sql, type SQL } from "drizzle-orm";
+import {
+  type HistoryInput,
+  MONITOR_RANGES,
+  type MonitorInsights,
+  type MonitorRange,
+  type MonitorSummaryMetrics,
+} from "../monitors/insight-types.ts";
+import { buildMonitorInsights, summarizeMonitor } from "../monitors/insights.ts";
 import { displayMonitorUrl } from "./display-url.ts";
 
 /** The authenticated user boundary supplies this server-side database handle. */
@@ -20,6 +28,9 @@ export type MonitorDto = {
   expectedStatus: string;
   lastCheckedAt: Date | null;
 };
+type OpenIncident = { openIncidentStartedAt: Date | null };
+type MonitorSummary = MonitorDto & MonitorSummaryMetrics & OpenIncident;
+type MonitorDetail = { monitor: MonitorDto; insights: MonitorInsights } & OpenIncident;
 export type ChannelDto = {
   id: string;
   type: "telegram" | "webhook" | "discord" | "slack";
@@ -177,6 +188,29 @@ function monitor(row: Row, now: Date): MonitorDto {
     lastCheckedAt: optionalDate(row.lastCheckedAt),
   };
 }
+function monitorHistory(row: Row): HistoryInput {
+  return {
+    createdAt: date(row.createdAt),
+    intervalSeconds: row.intervalSeconds as number,
+    isPaused: row.isPaused as boolean,
+    checks: (row.checks as Row[]).map((check) => ({
+      checkedAt: date(check.checkedAt),
+      ok: check.ok as boolean,
+      responseMs: check.responseMs as number | null,
+    })),
+    events: (row.events as Row[]).map((event) => ({
+      at: date(event.at),
+      kind: event.kind as HistoryInput["events"][number]["kind"],
+    })),
+    incidents: (row.incidents as Row[]).map((incident) => ({
+      startedAt: date(incident.startedAt),
+      resolvedAt: optionalDate(incident.resolvedAt),
+    })),
+  };
+}
+function openIncidentStartedAt(history: HistoryInput): Date | null {
+  return history.incidents.find((incident) => incident.resolvedAt === null)?.startedAt ?? null;
+}
 function channel(row: Row): ChannelDto {
   return {
     id: String(row.id),
@@ -219,6 +253,51 @@ export function createDataAccess(db: DataExecutor, userId: string, currentTime =
     const now = date(currentTime());
     return found.map((row) => monitor(row, now));
   };
+
+  async function loadMonitorHistory(now: Date, durationMs: number, monitorId?: string) {
+    const end = sql`${now.toISOString()}::timestamptz`;
+    const start = sql`greatest(${new Date(now.getTime() - durationMs).toISOString()}::timestamptz, m.created_at)`;
+    const selected = monitorId === undefined ? sql`` : sql`AND m.id=${monitorId}`;
+    // Keep the monitor and its history in one statement snapshot. The indexed
+    // predecessor rows carry coverage and pause state across the left edge.
+    return ownedRows(sql`
+      SELECT ${monitorFields},m.created_at AS "createdAt",
+        COALESCE((
+          SELECT jsonb_agg(jsonb_build_object('checkedAt', c.checked_at, 'ok', c.ok,
+            'responseMs', c.response_ms) ORDER BY c.checked_at,c.id)
+          FROM (
+            SELECT c.id,c.checked_at,c.ok,c.response_ms FROM checks c
+            WHERE c.monitor_id=m.id AND c.checked_at BETWEEN ${start} AND ${end}
+            UNION ALL (
+              SELECT c.id,c.checked_at,c.ok,c.response_ms FROM checks c
+              WHERE c.monitor_id=m.id AND c.checked_at >= m.created_at AND c.checked_at < ${start}
+              ORDER BY c.checked_at DESC,c.id DESC LIMIT 1
+            )
+          ) c
+        ),'[]'::jsonb) AS checks,
+        COALESCE((
+          SELECT jsonb_agg(jsonb_build_object('at', e.at, 'kind', e.kind) ORDER BY e.at,e.id)
+          FROM (
+            SELECT e.id,e.at,e.kind FROM monitor_events e
+            WHERE e.monitor_id=m.id AND e.kind IN ('paused','resumed','blocked')
+              AND e.at BETWEEN ${start} AND ${end}
+            UNION ALL (
+              SELECT e.id,e.at,e.kind FROM monitor_events e
+              WHERE e.monitor_id=m.id AND e.kind IN ('paused','resumed','blocked') AND e.at < ${start}
+              ORDER BY e.at DESC,e.id DESC LIMIT 1
+            )
+          ) e
+        ),'[]'::jsonb) AS events,
+        COALESCE((
+          SELECT jsonb_agg(jsonb_build_object('startedAt', i.started_at, 'resolvedAt', i.resolved_at)
+            ORDER BY i.started_at,i.id)
+          FROM incidents i
+          WHERE i.monitor_id=m.id AND i.user_id=m.user_id AND i.started_at <= ${end}
+            AND (i.resolved_at IS NULL OR i.resolved_at > ${start})
+        ),'[]'::jsonb) AS incidents
+      FROM monitors m WHERE m.user_id=${userId} ${selected} ORDER BY m.name,m.id
+    `);
+  }
 
   async function associationWrite<T>(action: (tx: DataExecutor) => Promise<T>): Promise<T> {
     if (!db.transaction) throw new DataAccessError();
@@ -270,6 +349,33 @@ export function createDataAccess(db: DataExecutor, userId: string, currentTime =
           ),
         ),
       );
+    },
+    async listMonitorSummaries(): Promise<MonitorSummary[]> {
+      const now = date(currentTime());
+      const found = await loadMonitorHistory(now, MONITOR_RANGES["24h"].durationMs);
+      return found.map((row) => {
+        const history = monitorHistory(row);
+        return {
+          ...monitor(row, now),
+          ...summarizeMonitor(history, now),
+          openIncidentStartedAt: openIncidentStartedAt(history),
+        };
+      });
+    },
+    async getMonitorInsights(id: string, range: MonitorRange): Promise<MonitorDetail | null> {
+      requireId(id);
+      if (typeof range !== "string" || !Object.hasOwn(MONITOR_RANGES, range))
+        throw new DataAccessError();
+      const now = date(currentTime());
+      // The daily bar always uses up to 30 days, regardless of the chart range.
+      const row = first(await loadMonitorHistory(now, MONITOR_RANGES["30d"].durationMs, id));
+      if (!row) return null;
+      const history = monitorHistory(row);
+      return {
+        monitor: monitor(row, now),
+        insights: buildMonitorInsights(history, range, now),
+        openIncidentStartedAt: openIncidentStartedAt(history),
+      };
     },
     async renameMonitor(id: string, name: string): Promise<boolean> {
       requireId(id);

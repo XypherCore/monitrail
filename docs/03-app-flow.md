@@ -42,8 +42,10 @@ anything else becomes `/dashboard`.
 | Down | Confirmed incident open | Down + incident start time |
 | Paused | `is_paused` by the user | Paused |
 | Blocked | Paused because the host is on the blocklist | Blocked + plain explanation |
-| Unknown | No accepted result for 3 x interval | Unknown, with "no recent checks" and a link to status |
+| Unknown | No accepted result for 3 x interval | Unknown, with "No recent checks" and a link to the affected monitor's check history |
 Unknown is never styled or counted as Up.
+The dashboard and monitor detail refresh once per minute while the tab is
+visible.
 
 ## Key journeys
 **1. Add a monitor**

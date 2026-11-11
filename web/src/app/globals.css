@@ -486,10 +486,10 @@ code,
 	list-style: none;
 }
 .monitor-row-link {
-	display: flex;
+	display: grid;
+	grid-template-columns: minmax(0, 1.4fr) minmax(88px, 0.65fr) minmax(0, 2fr);
 	align-items: center;
-	justify-content: space-between;
-	gap: 24px;
+	gap: 16px;
 	min-height: 44px;
 	padding: 20px 22px;
 	color: var(--text);
@@ -512,6 +512,47 @@ code,
 	overflow: hidden;
 	text-overflow: ellipsis;
 	white-space: nowrap;
+}
+.monitor-row-state {
+	display: grid;
+	justify-items: start;
+	gap: 2px 10px;
+}
+.monitor-row-status-link {
+	color: var(--accent);
+	font-size: 12px;
+	text-decoration: underline;
+	text-underline-offset: 4px;
+}
+.monitor-row-metrics,
+.incident-fields {
+	display: grid;
+	grid-template-columns: repeat(3, minmax(0, 1fr));
+	gap: 12px;
+	margin: 0;
+}
+.monitor-row-metrics dt,
+.incident-fields dt {
+	margin-bottom: 4px;
+	color: var(--muted);
+	font-size: 12px;
+}
+.monitor-row-metrics dd,
+.incident-fields dd {
+	margin: 0;
+	overflow-wrap: anywhere;
+}
+.monitor-row-metrics dd,
+.incident-fields dd time {
+	font-family: "Geist Mono", ui-monospace, monospace;
+	font-size: 12px;
+	font-variant-numeric: tabular-nums;
+}
+.monitor-row-coverage {
+	display: block;
+	margin-top: 2px;
+	color: var(--muted);
+	font-family: "Geist", system-ui, sans-serif;
 }
 .monitor-status-icon {
 	width: 14px;
@@ -554,6 +595,44 @@ code,
 	align-items: center;
 	gap: 8px 14px;
 	margin-top: 14px;
+}
+.monitor-status-anchor {
+	margin-bottom: 0;
+}
+.incident-log {
+	margin: 20px 0;
+	scroll-margin-block: 16px;
+}
+.incident-list {
+	margin: 0;
+	padding: 0;
+	list-style: none;
+}
+.incident-entry {
+	display: grid;
+	gap: 12px;
+	padding: 18px 22px;
+}
+.incident-entry + .incident-entry {
+	border-top: 1px solid var(--border);
+}
+.incident-entry h3 {
+	margin: 0;
+	font-size: 14px;
+	font-weight: 600;
+}
+.incident-pagination {
+	display: flex;
+	flex-wrap: wrap;
+	justify-content: space-between;
+	gap: 8px;
+	padding: 12px 22px;
+	border-top: 1px solid var(--border);
+}
+.insight-loading-panel {
+	display: grid;
+	gap: 14px;
+	padding: 18px 22px;
 }
 .monitor-editor,
 .monitor-skeleton {
@@ -775,13 +854,25 @@ code,
 		padding: 36px 18px;
 	}
 	.monitor-row-link {
-		flex-direction: column;
-		align-items: flex-start;
-		gap: 8px;
+		grid-template-columns: minmax(0, 1fr);
+		gap: 12px;
 		padding: 18px;
 	}
 	.monitor-description {
 		max-width: 100%;
+	}
+	.monitor-row-state {
+		display: flex;
+		flex-wrap: wrap;
+		align-items: baseline;
+	}
+	.incident-fields {
+		grid-template-columns: repeat(2, minmax(0, 1fr));
+	}
+	.incident-entry,
+	.incident-pagination,
+	.insight-loading-panel {
+		padding-inline: 18px;
 	}
 	.monitor-form,
 	.monitor-skeleton {

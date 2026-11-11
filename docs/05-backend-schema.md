@@ -174,10 +174,12 @@ fire concurrent creates and assert the cap holds.
 ## Availability, coverage and latency (the numbers users see)
 **Availability % (time-based, per window of 24 h, 7 d or 30 d)**
 - Window start = max(now - window, monitor created_at).
-- Excluded time = paused spans (from `monitor_events`) + unobserved gaps. A
-  gap is the span between two consecutive accepted checks more than 3 x the
-  interval apart, unless an incident is open during it (that time counts as
-  downtime).
+- Excluded time is the union of paused spans (from `monitor_events`) and
+  unobserved gaps. An interior gap spans two consecutive accepted checks
+  more than 3 x the interval apart. Once the monitor is stale, exclude the
+  trailing gap from the last accepted check to now. Time before the first
+  accepted observation is unobserved. Keep confirmed incident time that
+  overlaps an unobserved gap as downtime. Paused time stays excluded.
 - Downtime = union of incident intervals from `started_at` to `resolved_at`
   (or now), clipped to the window, minus excluded time.
 - Observed = window length - excluded. Coverage = observed / window length.
