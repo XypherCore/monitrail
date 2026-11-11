@@ -13,8 +13,8 @@ first, then the code.
   was wrong. Its polling math was right.
 - Vercel Hobby is for personal, non-commercial use; cron is about once a
   day. Review was right.
-- The rev 1 "200 monitors" estimate was wrong and is gone. Provisional cap
-  is 50 until measured in phase 5.
+- Phase 5 replaced the provisional cap of 50. The rev 1 estimate of 200
+  monitors was withdrawn before benchmarking.
 - Border token contrast was 1.36:1; the review was right. Fixed with
   `--border-strong`.
 
@@ -57,8 +57,8 @@ first, then the code.
   a private Cloudflare Queue. The consumer runs the signed check tick and
   discards markers older than one scheduling interval. The owner selected
   this path after direct Cron exceeded its CPU budget and the disposable
-  Queue consumer completed full batches. The integrated deployment and
-  load tests determine the global monitor cap.
+  Queue consumer completed full batches. The integrated staging run and
+  database load test support the approved global cap of 40 monitors.
 - **Pause, resume, edit semantics**: one `is_paused` flag, `config_rev`,
   explicit incident closure reasons, no recovery alerts on closure.
   Phase 4 owner decisions keep the next scheduled check on interval-only
@@ -98,4 +98,3 @@ first, then the code.
    CU always-on, verify).
 2. Hosting plan and commercial status (doc 02, "Hosting terms").
 3. Open-source license and domain (see doc 01).
-4. Global monitor cap: replaced by the phase 5 measurement.

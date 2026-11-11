@@ -27,7 +27,8 @@ enterprise team.
 2. **Monitors**: create, edit, pause, resume, delete. Fields: name, URL
    (http/https), interval (5, 10, 15, 30 or 60 min; default 5), expected
    status (`2xx` default, or `2xx or 3xx`). Method is always GET and timeout
-   is always 10 s; neither is user-configurable in v1.
+   is always 10 s; neither is user-configurable in v1. The hosted service
+   admits up to 40 monitors in total.
 3. **Checks** record: HTTP status code, response time (request start to
    response headers), and a classified error (`dns`, `timeout`, `tls`,
    `connect`, `bad_status`, `blocked`, `other`).
@@ -117,5 +118,3 @@ before making the repository public.
    for the build and dogfood: personal project, invite-only, no monetization;
    decide before opening public signups.
 5. Database: Supabase free Postgres (default) or Neon Launch (pay-as-you-go).
-6. Global monitor cap. Provisional 50, to be replaced by the measured value
-   from phase 5.

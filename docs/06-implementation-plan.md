@@ -54,18 +54,16 @@ Status legend: [ ] open, [~] in progress, [x] done
   See the [Phase 4 verification log](phase-4-verification.md).
 
 ## Week 2 — Checking and dashboard
-- [~] **Phase 5: Checker, claim and ingest.** Worker Cron, private check
-  queue, signed requests
-  (canonical string, nonce, skew), leases, attempts, server-side `ok`,
-  state machine with the constants and timing rule in doc 02.
+- [x] **Phase 5: Checker, claim and ingest.** Worker Cron, private check
+  queue, signed requests (canonical string, nonce, skew), leases, attempts,
+  server-side `ok`, state machine with the constants and timing rule in doc 02.
   Done when: unit tests simulate flap, sustained outage, recovery, slow
   responses, duplicate ingest, late results, results after pause or edit,
   and concurrent claims, and match the state machine; bad signatures, stale
   timestamps and reused nonces are rejected; the egress test proves the
   deployed Worker cannot reach `http://169.254.169.254/`, a private address
   or `localhost`; a scheduled benchmark records consumer CPU, subrequests,
-  queue delay and slot lateness at 15 jobs and sets the real global cap
-  (replace 50 in docs 01, 02, 05).
+  queue delay and slot lateness at 15 jobs and sets the global monitor cap.
   See the [Phase 5 verification log](phase-5-verification.md).
 - [ ] **Phase 6: Dashboard and detail pages.** All states, availability with
   coverage and "Not enough data", average and p95, buckets and gaps, daily

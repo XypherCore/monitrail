@@ -71,14 +71,14 @@ on I/O is not CPU), 5 cron triggers per account, 100,000 requests/day.
   brings the maximum to 48, within the 50-subrequest limit.
 - No DNS-over-HTTPS per check in the Worker (it would double the budget).
   DNS is validated in the web app (see SSRF guard).
-- 15 checks per minute supports about 75 monitors at a 5-minute interval
-  before confirmation retries. Provisional global cap: **50 monitors**.
-  Phase 5 benchmarks CPU per tick, subrequests used, and slot lateness; the
-  measured result replaces 50.
-- Direct Cron exceeded 10 ms even for some single-job checks. The owner chose
-  the Free Queue handoff after a disposable trial ran all 20 full batches.
-  Validate capacity on the integrated scheduled consumer before closing
-  Phase 5. Keep the SSRF guard and its existing bounds.
+- The global cap is **40 monitors**. At five-minute intervals these average
+  eight scheduled checks per minute before confirmations. The 15-job
+  consumer leaves room for confirmations. The load model averaged 13.33
+  jobs per minute at 40 under sustained flapping and saturated at 50.
+- Direct Cron exceeded 10 ms even for some single-job checks. Phase 5
+  verified full batches on the scheduled Queue consumer and exercised the
+  real database services with 40 monitors. Phase 11 measures missed
+  checks over the dogfood period. [Phase 5 verification](phase-5-verification.md)
 
 ## Check leases and attempts
 - `claim` atomically selects due, unpaused, unleased monitors with
@@ -250,7 +250,7 @@ signature, so a signature cannot be reused across endpoints.
 | Limit | Value |
 |---|---|
 | Monitors per user | 10 |
-| Global monitors | 50 (provisional; measured in phase 5) |
+| Global monitors | 40 |
 | Monitors per hostname across users | 5 |
 | Alert channels per user | 3 |
 | Status pages per user / monitors per page | 3 / 10 |

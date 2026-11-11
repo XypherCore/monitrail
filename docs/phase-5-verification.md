@@ -188,3 +188,59 @@ compatibility date and public routing flag, with an isolated transport
 that fails the test if the guard attempts a fetch for a blocked direct
 target. The Queue changes how a check starts. The same guard still
 validates each target and redirect.
+
+### Integrated scheduled benchmark
+
+The exact checker code and routing configuration ran in disposable Free-tier
+Cloudflare staging. Two consecutive one-minute Cron events each sent one
+marker. Each consumer invocation checked 15 public fixture URLs with two
+redirects and a 65,537-byte response. The signed fixture accepted all 30
+results.
+
+| Scheduled run (UTC) | Cron CPU | Consumer CPU | Accepted | Subrequests | Queue delay | Max fixture slot lateness |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: |
+| 16:34 | 0 ms | 72 ms | 15/15 | 47 | 2,417 ms | 46,767 ms |
+| 16:35 | 0 ms | 72 ms | 15/15 | 47 | 3,528 ms | 47,667 ms |
+
+Cron CPU is reported at the trace's millisecond precision. Slot lateness
+starts at the fixture's synthetic due minute and includes scheduler delay.
+Queue delay measures time from the marker's enqueue to consumption. The
+checks used 47 of the 50 subrequests available per invocation, with room
+for the single signed ingest retry verified against PostgreSQL.
+Both disposable Workers and the Queue were removed after collection.
+
+### Deployed Queue egress on 2026-11-11
+
+One authenticated staging marker invoked the checker with the final Queue
+and routing settings. The signed fixture accepted four results. The
+metadata address, a private IPv4 address and `localhost` each returned
+`blocked`. The public control returned HTTP 204. The trace counted three
+subrequests total, one for the signed claim, one for the public control,
+and one for signed ingest. The checker blocked all three literal targets
+before fetching them. Both disposable Workers and the Queue were removed.
+
+### Phase 5 decisions and limits of the evidence
+
+- The service now admits up to 40 monitors in total. The load test drained
+  40 monitors through all five rounds. The load model leaves capacity for
+  confirmations at 40 and saturates at 50. The scheduled staging samples
+  establish that the Free consumer can run a full 15-job batch. Phase 11
+  measures the missed-check rate over the full dogfood period.
+- Direct execution in Cron was replaced with a private Queue handoff. A
+  delayed marker is skipped once its age reaches one scheduling interval.
+  Queue delivery retries are disabled. The signed ingest still retries
+  once and due work can be reclaimed after lease expiry.
+- The final Queue deployment verified the literal egress gate. The earlier
+  private-DNS observations cover changes between checks and leave
+  connection-level DNS rebinding behavior unconfirmed.
+
+### Final regression checks
+
+Build, lint, typecheck, 269 web tests, 360 checker tests, six native workerd
+tests and the configured credential scan passed. The quota tests confirmed
+that only one of two overlapping creates can fill the last global slot.
+An earlier parallel run timed out while starting a database command test.
+The complete rerun passed with two Vitest workers.
+An independent model reviewed the checker, cap and documentation. Its
+remaining concern about egress under the final configuration was resolved
+by the deployed Queue test above.

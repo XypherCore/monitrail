@@ -198,10 +198,10 @@ measurement definition in doc 02. Chart buckets are in doc 04. Windows up to
 30 days are computed directly from `checks`, so no rollup tables exist in v1.
 
 ## Storage budget (30-day retention, Supabase Free 500 MB)
-At the 50-monitor cap and 5-minute intervals: about 432,000 `checks` rows per
+At the 40-monitor cap and 5-minute intervals: about 345,600 `checks` rows per
 30 days plus confirmation rechecks, roughly 100 to 150 bytes per row
-including the index, so on the order of 65 MB. Other tables stay small:
-outbox rows 90 days, incidents and events 1 year, attempts 1 day, rate
-limits 1 day. Phase 10 measures actual table and index sizes. If the
-database passes 80% of the plan limit, maintenance logs a warning; at 90%
-`/api/health` fails so the external check alerts the owner.
+including the index, so on the order of 52 MB before confirmations. Other
+tables stay small: outbox rows 90 days, incidents and events 1 year,
+attempts 1 day, rate limits 1 day. Phase 10 measures actual table and index
+sizes. If the database passes 80% of the plan limit, maintenance logs a
+warning; at 90% `/api/health` fails so the external check alerts the owner.
