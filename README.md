@@ -74,11 +74,33 @@ used for monitor URL validation. See the [Phase 4 verification log](docs/phase-4
 Phase 11 covers production deployment and public source release.
 
 Tool telemetry is disabled in Next.js dev/build/start and Wrangler scripts.
-The local Git identity is the project alias `Monitrail <dev@monitrail.invalid>`;
-the reserved `.invalid` address is not a personal or deliverable email address.
+The local Git identity is the project alias `Monitrail <dev@monitrail.invalid>`.
+The address uses the reserved `.invalid` domain.
 
 See `docs/phase-0-verification.md` for dependency decisions, provider checks,
 verification results and unresolved decisions for subsequent phases.
+
+## Alert configuration
+
+Provide `CHANNEL_ENC_KEY_ID` and `CHANNEL_ENC_KEY` to the web runtime. The
+key is 32 random bytes encoded as unpadded base64url. Use the same active key
+across all runtime instances. To enable Telegram linking, configure the bot
+token, bot username and a randomly generated webhook secret of 32–256
+URL-safe characters. Register the
+bot’s HTTPS webhook at `/api/telegram/webhook` with that secret and restrict
+updates to `message`. [Telegram webhook setup](https://core.telegram.org/bots/api#setwebhook)
+
+To rotate the channel key, deploy the new key as the previous key first so
+all readers can use both. Then switch the active and previous key pairs.
+After old writers have drained, supply the keys and both database URLs to
+the administrator process and run:
+
+```sh
+npm run alerts:rotate-keys --workspace web -- --confirm-rotate-channel-keys
+```
+
+Retire the previous key after rotation and after requests that could have
+read an old envelope have drained.
 
 ## Database development
 

@@ -236,7 +236,8 @@ signature, so a signature cannot be reused across endpoints.
 - Channel config is encrypted with AES-256-GCM: a fresh random 12-byte nonce
   per encryption, the 16-byte tag kept with the ciphertext, stored as
   `v1.{key_id}.{nonce}.{ciphertext+tag}` (base64url). Keys come from the
-  environment with an ID; a rotation script re-encrypts all rows.
+  environment with an ID. Set the previous key and ID during rotation
+  so reads can decrypt both versions while the script re-encrypts rows.
 - Telegram chat IDs and webhook URLs are never logged and never returned to
   the client after creation (show a masked label).
 - Webhook destinations must be HTTPS.
@@ -267,23 +268,26 @@ Worker.
 
 ### Alert delivery
 - Down and up events create `alert_outbox` rows in the same transaction as
-  the incident change. A delivery pass claims rows (lease, deadline,
-  exponential backoff, max 6 attempts over about 6 hours) and sends them
-  after the ingest response. A retry sweep runs at the start of every claim.
+  the incident change. Successful signed claims and ingests schedule delivery
+  after their response. Try immediately, then back off by 11, 22, 44, 88,
+  and 176 minutes, with at most six attempts and a six-hour cutoff.
 - Delivery is at-least-once. A crash between "sent" and "recorded" can cause
-  a duplicate; a database constraint cannot make third-party delivery
-  exactly-once. Every payload has `event_id` so receivers can dedupe.
+  a duplicate. A lost acknowledgment can also cause a duplicate. Every
+  retry retains the same `event_id` so receivers can deduplicate.
 - Slow recipients can never delay checking, because delivery happens after
   the ingest response and is bounded by a 5 s timeout.
 - Subscriptions: new monitors default to all verified channels (toggle at
   creation). Removing a channel stops future events; adding one does not
   backfill. A recovery alert goes only to channels that received the down
   alert. If the corresponding down delivery is still pending, defer the
-  recovery until the down delivery is recorded as sent. Discard the
-  recovery if the down delivery fails permanently.
+  recovery until the down delivery is recorded as sent. The recovery's
+  six-hour cutoff starts when it becomes eligible. Discard the recovery
+  if the down delivery fails permanently. Channel labels are editable.
+  A new destination requires a new verified channel.
 - Generic webhook payload v1: `{ "version": 1, "event": "incident.opened" |
   "incident.resolved", "event_id", "monitor": {"name"}, "incident":
   {"started_at","confirmed_at","resolved_at","cause"}, "sent_at" }`.
+  A test sends `{ "version": 1, "event": "alert.test", "event_id", "sent_at" }`.
   Discord and Slack adapters wrap a human-readable line in their own format.
 
 ### Telegram linking
@@ -321,7 +325,8 @@ avatar) is collected, stored and shown only to that user.
 ## Environment variables (names only)
 Web: DATABASE_URL, AUTH_SECRET, AUTH_GITHUB_ID, AUTH_GITHUB_SECRET,
 AUTH_GOOGLE_ID, AUTH_GOOGLE_SECRET, INTERNAL_HMAC_SECRET,
-CHANNEL_ENC_KEY, CHANNEL_ENC_KEY_ID, TELEGRAM_BOT_TOKEN,
+CHANNEL_ENC_KEY, CHANNEL_ENC_KEY_ID, CHANNEL_ENC_PREVIOUS_KEY,
+CHANNEL_ENC_PREVIOUS_KEY_ID, TELEGRAM_BOT_TOKEN,
 TELEGRAM_WEBHOOK_SECRET, TELEGRAM_BOT_USERNAME, APP_URL,
 ABUSE_CONTACT_EMAIL, SIGNUP_MODE.
 Checker: APP_URL, INTERNAL_HMAC_SECRET.

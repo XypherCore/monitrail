@@ -48,8 +48,8 @@ enterprise team.
    changed, blocked).
 8. **Alerts** on confirmed down and confirmed recovery through Telegram,
    Discord, Slack and a generic webhook (versioned JSON payload with an
-   `event_id`). Delivery is at-least-once; duplicates are possible only
-   after a crash and receivers can dedupe on `event_id`. Telegram is linked
+   `event_id`). A crash or a lost delivery acknowledgment can cause a
+   duplicate. Receivers can deduplicate on `event_id`. Telegram is linked
    by a one-time code from the destination chat (private chats only in v1).
 9. **Public status pages**: each user can create up to 3 pages, each with up
    to 10 of their monitors. A page needs at least one monitor to publish.

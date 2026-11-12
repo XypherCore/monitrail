@@ -77,7 +77,8 @@ id, incident_id, channel_id, kind ('down' | 'up'), dedupe_key (UNIQUE:
 ('pending' | 'sending' | 'sent' | 'failed'), attempts, next_attempt_at,
 claimed_until, last_error_category (allowlisted), created_at, sent_at.
 Rows are created in the same transaction as the incident change. Delivery is
-at-least-once (doc 02).
+at-least-once (doc 02). A partial index on `(next_attempt_at, id)` covers
+pending and sending rows for the retry sweep.
 
 ## Public page tables
 **status_pages**: id, user_id, slug (UNIQUE on lower(slug), 3 to 40 chars,
@@ -152,8 +153,8 @@ fire concurrent creates and assert the cap holds.
          m.expected_status, m.lease_id;
   ```
   then inserts one `check_attempts` row per job, updates `system_heartbeat`,
-  runs the outbox retry sweep once Phase 7 enables delivery, and returns
-  jobs plus the blocklist snapshot. Each job includes `due_at` for slot
+  schedules the outbox retry sweep after the response, and returns jobs
+  plus the blocklist snapshot. Each job includes `due_at` for slot
   lateness measurement. Its lease UUID is also its attempt ID.
 - `POST /api/internal/ingest` body `{results: [{attempt_id, monitor_id,
   config_rev, started_at, status_code?, response_ms?, error_type?,

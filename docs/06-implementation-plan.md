@@ -73,7 +73,7 @@ Status legend: [ ] open, [~] in progress, [x] done
   See the [Phase 6 verification log](phase-6-verification.md).
 
 ## Week 3 — Alerts and public pages
-- [ ] **Phase 7: Alerts.** Channels CRUD with the encryption envelope, key
+- [x] **Phase 7: Alerts.** Channels CRUD with the encryption envelope, key
   rotation script, Telegram one-time-code linking, Discord/Slack/webhook
   adapters through the guarded transport, outbox delivery with backoff,
   subscription rules, test-alert rate limits.
@@ -83,6 +83,7 @@ Status legend: [ ] open, [~] in progress, [x] done
   `event_id`; a slow recipient never delays a check; secrets never appear in
   logs; a webhook that redirects or resolves to a private address is refused;
   an unverified Telegram chat receives nothing.
+  See the [Phase 7 verification log](phase-7-verification.md).
 - [ ] **Phase 8: Public status pages.** Projection, status precedence, slug
   rules and tombstones, tagged caching.
   Done when: cache-revocation tests prime the cache, then publish,

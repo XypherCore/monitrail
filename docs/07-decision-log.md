@@ -86,6 +86,11 @@ first, then the code.
 - **Service capabilities** separated from the user DAL.
 - **Status-page cardinality, projection, precedence, slug lifecycle.**
 - **Alert subscriptions and webhook payload v1.**
+- **Alert delivery decisions**: retry uncertain acknowledgments with the
+  same event ID. Back off by 11, 22, 44, 88, and 176 minutes, with a
+  six-hour cutoff starting at eligibility for recovery. A destination
+  change requires a new verified channel. Generic webhook tests send
+  a separate versioned `alert.test` event.
 - **Schedule**: build and proof are separate milestones; only the owner
   changes scope; missed-check metric is defined.
 - **Privacy scope**: applies to the maintainer, not end-user data.
