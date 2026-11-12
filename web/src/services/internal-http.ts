@@ -19,13 +19,17 @@ import {
   type InternalPath,
 } from "../../../shared/checks/signing.ts";
 import { awaitSignal } from "../../../shared/ssrf/io.ts";
-import type { CheckCapabilities } from "./capabilities.ts";
+import type { CheckCapabilities, OutboxCapability } from "./capabilities.ts";
 
 type Dependencies = {
   secret(): unknown;
   checks(): CheckCapabilities;
   consumeNonce(nonce: string): Promise<boolean>;
   now?(): Date;
+  delivery?: {
+    afterResponse(task: () => Promise<void>): void;
+    run: OutboxCapability["deliverOutbox"];
+  };
 };
 type SignedHeaders = { nonce: string; timestamp: string; seconds: number; signature: string };
 type Operation = (body: Uint8Array<ArrayBuffer>) => Promise<ClaimResponse | IngestResponse>;
@@ -145,7 +149,20 @@ export function createInternalHandlers(dependencies: Dependencies) {
       const digest = await computeInternalSignature(secret, path, signed.timestamp, signed.nonce, body);
       if (!timingSafeEqual(Buffer.from(digest), Buffer.from(signed.signature, "hex"))) return fail(401);
       if (!(await dependencies.consumeNonce(signed.nonce))) return fail(401);
-      return Response.json(await operation(body), { headers: privateHeaders });
+      const response = Response.json(await operation(body), { headers: privateHeaders });
+      const delivery = dependencies.delivery;
+      try {
+        delivery?.afterResponse(async () => {
+          try {
+            await delivery.run();
+          } catch {
+            // A later signed claim can retry. Keep provider and database diagnostics private.
+          }
+        });
+      } catch {
+        // Scheduler failure cannot replace a committed check response.
+      }
+      return response;
     } catch (error) {
       return fail(error instanceof RequestBodyError ? error.status : 503);
     }

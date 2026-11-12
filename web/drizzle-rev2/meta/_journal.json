@@ -8,6 +8,13 @@
       "when": 1793888098251,
       "tag": "0000_rev2_clean_target",
       "breakpoints": true
+    },
+    {
+      "idx": 1,
+      "version": "7",
+      "when": 1794452459531,
+      "tag": "0001_alert_outbox_ready",
+      "breakpoints": true
     }
   ]
 }

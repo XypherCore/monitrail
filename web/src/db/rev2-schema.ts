@@ -362,6 +362,8 @@ export const alertOutbox = pgTable(
       foreignColumns: [alertChannels.id, alertChannels.userId],
     }).onDelete("cascade"),
     index("alert_outbox_channel_idx").on(table.channelId),
+    index("alert_outbox_ready_idx").on(table.nextAttemptAt, table.id)
+      .where(sql`${table.status} IN ('pending','sending')`),
     check(
       "alert_outbox_dedupe_valid",
       sql`${table.dedupeKey} = ${table.incidentId}::text || ':' || ${table.channelId}::text || ':' || ${table.kind}::text`,

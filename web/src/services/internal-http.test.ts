@@ -58,13 +58,17 @@ function setup() {
     ]),
   };
   const consumeNonce = vi.fn<(value: string) => Promise<boolean>>().mockResolvedValue(true);
+  const tasks: Array<() => Promise<void>> = [];
+  const deliverOutbox = vi.fn<() => Promise<{ sent: number; retrying: number; failed: number }>>()
+    .mockResolvedValue({ sent: 0, retrying: 0, failed: 0 });
   const handlers = createInternalHandlers({
     secret: () => secret,
     checks: () => checks,
     consumeNonce,
     now: () => now,
+    delivery: { afterResponse: (task) => { tasks.push(task); }, run: deliverOutbox },
   });
-  return { handlers, consumeNonce, checks };
+  return { handlers, consumeNonce, checks, tasks, deliverOutbox };
 }
 
 describe("signed check endpoints", () => {
@@ -98,13 +102,36 @@ describe("signed check endpoints", () => {
     }] });
   });
 
+  it("schedules delivery after empty claim and ingest responses without waiting for a slow recipient", async () => {
+    const { handlers, checks, tasks, deliverOutbox } = setup();
+    const slow = Promise.withResolvers<{ sent: number; retrying: number; failed: number }>();
+    deliverOutbox.mockReturnValueOnce(slow.promise);
+    checks.claimChecks.mockResolvedValueOnce({ jobs: [], blocklist: [] });
+    const empty = await handlers.claim(request(INTERNAL_CLAIM_PATH, await signed(INTERNAL_CLAIM_PATH, claim)));
+    expect(await empty.json()).toEqual({ jobs: [], blocklist: [] });
+    expect(tasks).toHaveLength(1);
+    expect(deliverOutbox).not.toHaveBeenCalled();
+    const running = tasks[0]();
+    try {
+      const ingested = await handlers.ingest(request(INTERNAL_INGEST_PATH, await signed(INTERNAL_INGEST_PATH, ingest), ingest));
+      expect(ingested.status).toBe(200);
+      expect(tasks).toHaveLength(2);
+      expect(deliverOutbox).toHaveBeenCalledTimes(1);
+    } finally {
+      slow.resolve({ sent: 1, retrying: 0, failed: 0 });
+      await running;
+    }
+    await tasks[1]();
+    expect(deliverOutbox).toHaveBeenCalledTimes(2);
+  });
+
   it.each([
     [INTERNAL_SIGNATURE_HEADER, "f".repeat(64)],
     [INTERNAL_SIGNATURE_HEADER, "A".repeat(64)],
     [INTERNAL_TIMESTAMP_HEADER, "0001234"],
     [INTERNAL_NONCE_HEADER, `${nonce}, ${nonce}`],
   ])("rejects a bad or noncanonical %s before durable nonce use", async (header, value) => {
-    const { handlers, consumeNonce, checks } = setup();
+    const { handlers, consumeNonce, checks, tasks } = setup();
     const headers = await signed(INTERNAL_CLAIM_PATH, claim);
     headers.set(header, value);
     const response = await handlers.claim(request(INTERNAL_CLAIM_PATH, headers));
@@ -112,6 +139,7 @@ describe("signed check endpoints", () => {
     expect(response.headers.get("cache-control")).toBe("no-store");
     expect(consumeNonce).not.toHaveBeenCalled();
     expect(checks.claimChecks).not.toHaveBeenCalled();
+    expect(tasks).toHaveLength(0);
   });
 
   it.each([-61, 61])("rejects timestamp skew of %s seconds", async (seconds) => {
@@ -144,7 +172,7 @@ describe("signed check endpoints", () => {
   });
 
   it("rejects nonce reuse and fails closed when nonce storage is unavailable", async () => {
-    const { handlers, consumeNonce, checks } = setup();
+    const { handlers, consumeNonce, checks, tasks } = setup();
     consumeNonce.mockResolvedValueOnce(false).mockRejectedValueOnce(new Error("sensitive storage diagnostic"));
     const headers = await signed(INTERNAL_CLAIM_PATH, claim);
     const replay = await handlers.claim(request(INTERNAL_CLAIM_PATH, headers));
@@ -154,6 +182,7 @@ describe("signed check endpoints", () => {
     expect(await unavailable.text()).not.toContain("sensitive");
     expect(unavailable.headers.get("cache-control")).toBe("no-store");
     expect(checks.claimChecks).not.toHaveBeenCalled();
+    expect(tasks).toHaveLength(0);
   });
 
   it("bounds body bytes before nonce use with or without a declared length", async () => {
@@ -188,12 +217,13 @@ describe("signed check endpoints", () => {
   });
 
   it("rejects invalid JSON and client-supplied success even if correctly signed", async () => {
-    const { handlers, checks } = setup();
+    const { handlers, checks, tasks } = setup();
     const bad = JSON.stringify({ results: [{ ...result, ok: true }] });
     const malformed = await handlers.claim(request(INTERNAL_CLAIM_PATH, await signed(INTERNAL_CLAIM_PATH, "["), "["));
     const unexpected = await handlers.ingest(request(INTERNAL_INGEST_PATH, await signed(INTERNAL_INGEST_PATH, bad), bad));
     expect([malformed.status, unexpected.status]).toEqual([400, 400]);
     expect(checks.claimChecks).not.toHaveBeenCalled();
     expect(checks.ingestResults).not.toHaveBeenCalled();
+    expect(tasks).toHaveLength(0);
   });
 });

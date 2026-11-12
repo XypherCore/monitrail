@@ -1,0 +1,1 @@
+CREATE INDEX "alert_outbox_ready_idx" ON "alert_outbox" USING btree ("next_attempt_at","id") WHERE "alert_outbox"."status" IN ('pending','sending');
