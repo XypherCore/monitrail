@@ -11,6 +11,7 @@ import {
 	alertPrivateHeaders,
 	AlertRequestError,
 	readAlertJson,
+	requireEmptyAlertBody,
 } from "./request-json.ts";
 
 type AlertAccess = ReturnType<typeof createAlertChannelAccess>;
@@ -44,11 +45,6 @@ function failure(
 
 function respond(value: object, status = 200) {
 	return Response.json(value, { status, headers });
-}
-
-function noBody(request: Request) {
-	if (request.body || (request.headers.get("content-length") ?? "0") !== "0")
-		throw new AlertRequestError(400);
 }
 
 export function createAlertHandlers(deps: Dependencies) {
@@ -111,14 +107,14 @@ export function createAlertHandlers(deps: Dependencies) {
 			}),
 		remove: (request: Request, id: string) =>
 			run(request, "DELETE", async (access) => {
-				noBody(request);
+				await requireEmptyAlertBody(request);
 				return isChannelId(id) && (await access.remove(id))
 					? respond({ id })
 					: missing();
 			}),
 		test: (request: Request, id: string) =>
 			run(request, "POST", async (access) => {
-				noBody(request);
+				await requireEmptyAlertBody(request);
 				if (!isChannelId(id)) return missing();
 				const result = await access.test(id);
 				if (!result) return missing();
@@ -128,7 +124,7 @@ export function createAlertHandlers(deps: Dependencies) {
 			}),
 		telegram: (request: Request) =>
 			run(request, "POST", async (access) => {
-				noBody(request);
+				await requireEmptyAlertBody(request);
 				return respond(await access.issueTelegram(), 201);
 			}),
 	};

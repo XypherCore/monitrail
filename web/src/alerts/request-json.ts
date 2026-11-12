@@ -22,31 +22,49 @@ export async function readAlertJson(request: Request): Promise<unknown> {
 		encoding.toLowerCase() !== "identity"
 	)
 		throw new AlertRequestError(415);
+	const bytes = await readBody(request, bodyLimit);
+	try {
+		return JSON.parse(new TextDecoder("utf-8", { fatal: true }).decode(bytes));
+	} catch {
+		throw new AlertRequestError(400);
+	}
+}
+
+export async function requireEmptyAlertBody(request: Request): Promise<void> {
+	await readBody(request, 0);
+}
+
+async function readBody(
+	request: Request,
+	limit: number,
+): Promise<Uint8Array<ArrayBuffer>> {
 	const declared = request.headers.get("content-length");
+	const overflow = limit === 0 ? 400 : 413;
 	if (declared !== null) {
 		if (!/^(?:0|[1-9]\d*)$/.test(declared)) throw new AlertRequestError(400);
-		if (Number(declared) > bodyLimit) throw new AlertRequestError(413);
+		if (Number(declared) > limit) throw new AlertRequestError(overflow);
 	}
-	if (!request.body) throw new AlertRequestError(400);
+	if (!request.body) {
+		if (declared !== null && declared !== "0") throw new AlertRequestError(400);
+		return new Uint8Array();
+	}
 	const reader = request.body.getReader();
 	const timeout = AbortSignal.timeout(uploadTimeoutMs);
 	const signal = AbortSignal.any([request.signal, timeout]);
 	try {
-		const bytes = new Uint8Array(bodyLimit);
+		const bytes = new Uint8Array(limit);
 		let used = 0;
 		for (;;) {
 			const chunk = await awaitSignal(reader.read(), signal);
 			if (chunk.done) break;
-			if (chunk.value.length > bodyLimit - used)
-				throw new AlertRequestError(413);
+			if (chunk.value.length > limit - used)
+				throw new AlertRequestError(overflow);
 			bytes.set(chunk.value, used);
 			used += chunk.value.length;
 		}
 		if (declared !== null && Number(declared) !== used)
 			throw new AlertRequestError(400);
-		return JSON.parse(
-			new TextDecoder("utf-8", { fatal: true }).decode(bytes.subarray(0, used)),
-		);
+		return bytes.subarray(0, used);
 	} catch (error) {
 		if (error instanceof AlertRequestError) throw error;
 		throw new AlertRequestError(timeout.aborted ? 408 : 400);

@@ -82,6 +82,26 @@ describe("alert mutation boundaries", () => {
 			error: { category: "timeout" },
 		});
 	});
+
+	it("accepts an empty request stream but rejects an unexpected body", async () => {
+		const path = `${origin}/api/channels/telegram`;
+		const streamed = (bytes?: Uint8Array) =>
+			new Request(path, {
+				method: "POST",
+				headers: { origin },
+				duplex: "half",
+				body: new ReadableStream({
+					start(controller) {
+						if (bytes) controller.enqueue(bytes);
+						controller.close();
+					},
+				}),
+			} as RequestInit & { duplex: "half" });
+		expect((await handlers.telegram(streamed())).status).toBe(201);
+		expect(
+			(await handlers.telegram(streamed(new Uint8Array([1])))).status,
+		).toBe(400);
+	});
 });
 
 describe("Telegram inbound boundary", () => {
