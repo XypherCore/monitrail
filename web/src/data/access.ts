@@ -7,6 +7,7 @@ import {
   type MonitorSummaryMetrics,
 } from "../monitors/insight-types.ts";
 import { buildMonitorInsights, summarizeMonitor } from "../monitors/insights.ts";
+import { MONITOR_CHANNEL_LIMIT } from "../monitors/input.ts";
 import { displayMonitorUrl } from "./display-url.ts";
 
 /** The authenticated user boundary supplies this server-side database handle. */
@@ -90,7 +91,6 @@ export class DataAccessError extends Error {
 
 type Row = Record<string, unknown>;
 const maxPageMonitors = 10;
-const maxMonitorChannels = 3;
 const uuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
 function requireId(value: unknown): asserts value is string {
@@ -533,7 +533,7 @@ export function createDataAccess(db: DataExecutor, userId: string, currentTime =
         if (!(await lockMonitor(tx, monitorId))) return false;
         const channel = await rows(
           tx,
-          sql`SELECT id FROM alert_channels WHERE id=${channelId} AND user_id=${userId} FOR KEY SHARE`,
+          sql`SELECT id FROM alert_channels WHERE id=${channelId} AND user_id=${userId} AND is_verified FOR KEY SHARE`,
         );
         if (!channel.length) return false;
         const existing = await rows(
@@ -541,7 +541,7 @@ export function createDataAccess(db: DataExecutor, userId: string, currentTime =
           sql`SELECT channel_id FROM monitor_alert_channels WHERE monitor_id=${monitorId} AND user_id=${userId}`,
         );
         if (existing.some((row) => row.channel_id === channelId.toLowerCase())) return true;
-        if (existing.length >= maxMonitorChannels) throw new DataAccessError();
+        if (existing.length >= MONITOR_CHANNEL_LIMIT) throw new DataAccessError();
         await rows(
           tx,
           sql`INSERT INTO monitor_alert_channels (user_id,monitor_id,channel_id) VALUES (${userId},${monitorId},${channelId})`,
@@ -554,13 +554,13 @@ export function createDataAccess(db: DataExecutor, userId: string, currentTime =
       channelIds: readonly string[],
     ): Promise<boolean> {
       requireId(monitorId);
-      ids(channelIds, maxMonitorChannels);
+      ids(channelIds, MONITOR_CHANNEL_LIMIT);
       return associationWrite(async (tx) => {
         if (!(await lockMonitor(tx, monitorId))) return false;
         if (channelIds.length) {
           const selected = await rows(
             tx,
-            sql`SELECT id FROM alert_channels WHERE user_id=${userId} AND id IN (${sql.join(
+            sql`SELECT id FROM alert_channels WHERE user_id=${userId} AND is_verified AND id IN (${sql.join(
               channelIds.map((id) => sql`${id}`),
               sql`,`,
             )}) FOR KEY SHARE`,

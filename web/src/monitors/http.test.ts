@@ -20,6 +20,7 @@ function fixture() {
     createMonitor: vi.fn<MonitorHttpAccess["createMonitor"]>().mockResolvedValue({ id }),
     editMonitor: vi.fn<MonitorHttpAccess["editMonitor"]>().mockResolvedValue(true),
     setMonitorPaused: vi.fn<MonitorHttpAccess["setMonitorPaused"]>().mockResolvedValue(true),
+    replaceMonitorChannels: vi.fn<MonitorHttpAccess["replaceMonitorChannels"]>().mockResolvedValue(true),
     deleteMonitor: vi.fn<MonitorHttpAccess["deleteMonitor"]>().mockResolvedValue(true),
   };
   const authenticate = vi.fn<() => Promise<MonitorHttpAccess | null>>().mockResolvedValue(access);
@@ -139,6 +140,34 @@ describe("monitor mutation boundary", () => {
     expect(access.createMonitor).not.toHaveBeenCalled();
     expect(access.editMonitor).not.toHaveBeenCalled();
     expect(access.setMonitorPaused).not.toHaveBeenCalled();
+  });
+
+  it("authenticates and bounds subscription writes without reflecting private fields", async () => {
+    const { handlers, access, authenticate } = fixture();
+    const writeSelection = (value: unknown) => write("PUT", JSON.stringify(value));
+    const badOrigin = await handlers.subscriptions(
+      write("PUT", "{}", { origin: "https://other.example.invalid" }), id,
+    );
+    expect(badOrigin.status).toBe(403);
+    expect(authenticate).not.toHaveBeenCalled();
+    authenticate.mockResolvedValueOnce(null);
+    expect((await handlers.subscriptions(writeSelection({ channelIds: [] }), id)).status).toBe(401);
+    expect((await handlers.subscriptions(writeSelection({ channelIds: [], userId: id }), id)).status)
+      .toBe(400);
+    expect(access.replaceMonitorChannels).not.toHaveBeenCalled();
+
+    const saved = await handlers.subscriptions(writeSelection({ channelIds: [id] }), id);
+    expect(saved.status).toBe(200);
+    expect(await saved.json()).toEqual({ id });
+    expect(saved.headers.get("cache-control")).toContain("no-store");
+    expect(access.replaceMonitorChannels).toHaveBeenCalledWith(id, [id]);
+
+    access.replaceMonitorChannels.mockResolvedValueOnce(false);
+    const missing = await handlers.subscriptions(writeSelection({ channelIds: [] }), id);
+    const malformed = await handlers.subscriptions(writeSelection({ channelIds: [] }), "invalid");
+    expect(missing.status).toBe(404);
+    expect(malformed.status).toBe(404);
+    expect(await missing.json()).toEqual(await malformed.json());
   });
 
   it.each([

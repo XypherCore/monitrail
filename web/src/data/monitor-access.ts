@@ -10,12 +10,14 @@ import {
 import { MONITOR_LIMITS } from "../monitors/limits.ts";
 import { createWebGuard } from "../security/web-ssrf.ts";
 import { createDataAccess, type DataExecutor } from "./access.ts";
+import { reserveRollingLimits, urlValidationRateKey } from "./rolling-rate.ts";
 
 type MonitorAccessCode =
   | "user_limit"
   | "global_limit"
   | "host_limit"
   | "validation_limit"
+  | "channel_selection"
   | "blocked"
   | "blocked_resume"
   | "unavailable";
@@ -66,7 +68,7 @@ export function createMonitorAccess(
   appUrl: string,
   guardDependencies?: GuardDependencies,
 ) {
-  const { deleteMonitor } = createDataAccess(db, userId);
+  const { deleteMonitor, replaceMonitorChannels } = createDataAccess(db, userId);
   const ownerId = userId.toLowerCase();
   const guard = createWebGuard(
     {
@@ -100,25 +102,11 @@ export function createMonitorAccess(
       if (!(await rows(tx, sql`SELECT 1 FROM users WHERE id=${ownerId} FOR KEY SHARE`)).length)
         throw new MonitorAccessError("unavailable");
 
-      const key = `monitor-url:${ownerId}`;
-      const window = sql`${MONITOR_LIMITS.validationWindowSeconds}::double precision * interval '1 second'`;
-      const [usage] = await rows<{ used: number; retry: number | null }>(tx, sql`
-        WITH stamp AS (SELECT clock_timestamp() AS at)
-        SELECT COALESCE(sum(count),0)::int AS used,
-          greatest(1,ceil(extract(epoch FROM min(window_start) + ${window} - min(stamp.at))))::int AS retry
-        FROM rate_limits CROSS JOIN stamp
-        WHERE key=${key} AND window_start > stamp.at - ${window}
-      `);
-      if (usage.used >= MONITOR_LIMITS.validations)
-        throw new MonitorAccessError("validation_limit", usage.retry ?? 1);
-
-      await rows(tx, sql`
-        DELETE FROM rate_limits WHERE key=${key} AND window_start <= clock_timestamp() - ${window}
-      `);
-      await rows(tx, sql`
-        INSERT INTO rate_limits(key,window_start,count) VALUES (${key},clock_timestamp(),1)
-        ON CONFLICT(key,window_start) DO UPDATE SET count=rate_limits.count+1
-      `);
+      const retry = await reserveRollingLimits(tx,
+        [{ key: urlValidationRateKey(ownerId), limit: MONITOR_LIMITS.validations }],
+        MONITOR_LIMITS.validationWindowSeconds,
+      );
+      if (retry !== null) throw new MonitorAccessError("validation_limit", retry);
       return true;
     });
   }
@@ -163,6 +151,7 @@ export function createMonitorAccess(
 
   return {
     deleteMonitor,
+    replaceMonitorChannels,
 
     async createMonitor(input: MonitorFields): Promise<{ id: string }> {
       const fields = parseMonitorFields(input, "create");
@@ -181,6 +170,15 @@ export function createMonitorAccess(
         if (counts.total >= MONITOR_LIMITS.global) throw new MonitorAccessError("global_limit");
         if (counts.sameHost >= MONITOR_LIMITS.host) throw new MonitorAccessError("host_limit");
 
+        const channelIds = fields.channelIds;
+        const channels = channelIds?.length === 0 ? [] : await rows<{ id: string }>(tx, sql`
+          SELECT id FROM alert_channels WHERE user_id=${ownerId} AND is_verified
+          ${channelIds ? sql`AND id IN (${sql.join(channelIds.map((id) => sql`${id}`), sql`,`)})` : sql``}
+          ORDER BY id FOR KEY SHARE
+        `);
+        if (channelIds && channels.length !== channelIds.length)
+          throw new MonitorAccessError("channel_selection");
+
         const at = await stamp(tx);
         const [created] = await rows<{ id: string }>(tx, sql`
           INSERT INTO monitors(user_id,name,url,host,interval_seconds,expected_status,
@@ -190,6 +188,13 @@ export function createMonitorAccess(
           RETURNING id
         `);
         await event(tx, created.id, "created", at);
+        if (channels.length) {
+          await rows(tx, sql`
+            INSERT INTO monitor_alert_channels(user_id,monitor_id,channel_id) VALUES ${sql.join(
+              channels.map(({ id }) => sql`(${ownerId},${created.id},${id})`), sql`,`,
+            )}
+          `);
+        }
         return { id: created.id };
       });
     },

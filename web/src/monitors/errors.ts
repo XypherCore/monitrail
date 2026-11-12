@@ -46,6 +46,8 @@ export function mapMonitorError(error: unknown): MonitorApiError | null {
     }
     case "blocked":
       return { status: 400, field: "url", message: "This hostname cannot be monitored." };
+    case "channel_selection":
+      return { status: 400, field: "channelIds", message: "Choose available verified alert channels." };
     case "blocked_resume":
       return { status: 409, field: "url", message: "Save a URL that passes validation before resuming this monitor." };
     case "unavailable":

@@ -4,6 +4,7 @@ import {
   type MonitorEditFields,
   type MonitorField,
   type MonitorFields,
+  parseMonitorChannelSelection,
   parseMonitorFields,
   parseMonitorUpdate,
 } from "./input.ts";
@@ -13,6 +14,7 @@ export type MonitorHttpAccess = {
   editMonitor(id: string, fields: MonitorEditFields): Promise<boolean>;
   setMonitorPaused(id: string, isPaused: boolean): Promise<boolean>;
   deleteMonitor(id: string): Promise<boolean>;
+  replaceMonitorChannels(id: string, channelIds: readonly string[]): Promise<boolean>;
 };
 
 type MonitorApiError = {
@@ -114,7 +116,7 @@ type Operation = (access: MonitorHttpAccess) => Response | Promise<Response>;
 export function createMonitorHandlers(dependencies: Dependencies) {
   async function run(
     request: Request,
-    method: "POST" | "PATCH" | "DELETE",
+    method: "POST" | "PATCH" | "DELETE" | "PUT",
     perform: Operation,
   ): Promise<Response> {
     if (request.method !== method) {
@@ -167,6 +169,14 @@ export function createMonitorHandlers(dependencies: Dependencies) {
       return run(request, "DELETE", async (access) =>
         isMonitorId(id) && (await access.deleteMonitor(id)) ? success(id) : missingMonitor(),
       );
+    },
+    subscriptions(request: Request, id: string) {
+      return run(request, "PUT", async (access) => {
+        const missing = () => failure(404, "Monitor or alert channel not found. Refresh and try again.");
+        if (!isMonitorId(id)) return missing();
+        const channelIds = parseMonitorChannelSelection(await readJson(request));
+        return await access.replaceMonitorChannels(id, channelIds) ? success(id) : missing();
+      });
     },
   };
 }

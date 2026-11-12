@@ -2,14 +2,16 @@ export const MONITOR_INTERVAL_SECONDS = [300, 600, 900, 1800, 3600] as const;
 export const MONITOR_EXPECTED_STATUSES = ["2xx", "2xx_3xx"] as const;
 export const MONITOR_DEFAULT_INTERVAL_SECONDS = MONITOR_INTERVAL_SECONDS[0];
 export const MONITOR_DEFAULT_EXPECTED_STATUS = MONITOR_EXPECTED_STATUSES[0];
+export const MONITOR_CHANNEL_LIMIT = 3;
 
 export type MonitorFields = {
   name: string;
   url: string;
   intervalSeconds: (typeof MONITOR_INTERVAL_SECONDS)[number];
   expectedStatus: (typeof MONITOR_EXPECTED_STATUSES)[number];
+  channelIds?: string[];
 };
-export type MonitorEditFields = Omit<MonitorFields, "url"> & { url?: string };
+export type MonitorEditFields = Omit<MonitorFields, "url" | "channelIds"> & { url?: string };
 export type MonitorField = keyof MonitorFields;
 
 export class MonitorInputError extends Error {
@@ -36,12 +38,35 @@ function fieldsObject(value: unknown): Record<string, unknown> {
   return value as Record<string, unknown>;
 }
 
+function parseChannelIds(value: unknown): string[] {
+  const invalid = () => new MonitorInputError("Choose up to three different alert channels.", "channelIds");
+  if (!Array.isArray(value) || value.length > MONITOR_CHANNEL_LIMIT) throw invalid();
+  const ids = new Set<string>();
+  for (const id of value) {
+    if (!isMonitorId(id)) throw invalid();
+    const canonical = id.toLowerCase();
+    if (ids.has(canonical)) throw invalid();
+    ids.add(canonical);
+  }
+  return [...ids];
+}
+
+export function parseMonitorChannelSelection(value: unknown): string[] {
+  const input = fieldsObject(value);
+  if (Object.keys(input).length !== 1 || !Object.hasOwn(input, "channelIds")) {
+    throw new MonitorInputError("Send only the selected alert channels.", "channelIds");
+  }
+  return parseChannelIds(input.channelIds);
+}
+
 export function parseMonitorFields(value: unknown, action: "create"): MonitorFields;
 export function parseMonitorFields(value: unknown, action: "edit"): MonitorEditFields;
 export function parseMonitorFields(value: unknown, action: "create" | "edit"): MonitorEditFields {
   const input = fieldsObject(value);
-  if (Object.keys(input).some((key) => !settings.has(key))) {
-    throw new MonitorInputError("Send only the monitor name, URL, interval and expected status.");
+  if (Object.keys(input).some((key) => !settings.has(key) && !(action === "create" && key === "channelIds"))) {
+    throw new MonitorInputError(action === "create"
+      ? "Send only the monitor name, URL, interval, expected status and alert channels."
+      : "Send only the monitor name, URL, interval and expected status.");
   }
   const { name, url } = input;
   if (typeof name !== "string" || !name.trim() || name.includes("\0")) {
@@ -72,6 +97,9 @@ export function parseMonitorFields(value: unknown, action: "create" | "edit"): M
     intervalSeconds,
     expectedStatus,
     ...(typeof url === "string" ? { url } : {}),
+    ...(action === "create" && input.channelIds !== undefined
+      ? { channelIds: parseChannelIds(input.channelIds) }
+      : {}),
   };
 }
 

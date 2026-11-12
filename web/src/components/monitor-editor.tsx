@@ -19,6 +19,11 @@ import {
 	type MonitorEditFields,
 	type MonitorFields,
 } from "../monitors/input";
+import {
+	AlertChannelOptions,
+	type ChannelOption,
+	selectedChannelIds,
+} from "./alert-channel-options";
 
 type Action = "create" | "save" | "pause" | "resume" | "delete";
 type Field = keyof MonitorFields;
@@ -41,13 +46,20 @@ function readFailure(body: unknown, action: Action): Failure {
 			field === "name" ||
 			field === "url" ||
 			field === "intervalSeconds" ||
-			field === "expectedStatus"
+			field === "expectedStatus" ||
+			field === "channelIds"
 				? field
 				: undefined,
 	};
 }
 
-export function MonitorEditor({ monitor }: { monitor?: MonitorDto }) {
+export function MonitorEditor({
+	monitor,
+	channels,
+}: {
+	monitor?: MonitorDto;
+	channels?: readonly ChannelOption[];
+}) {
 	const router = useRouter();
 	const dialog = useRef<HTMLDialogElement>(null);
 	const replacement = useRef<HTMLInputElement>(null);
@@ -65,7 +77,7 @@ export function MonitorEditor({ monitor }: { monitor?: MonitorDto }) {
 
 	async function mutate(
 		action: Action,
-		payload?: MonitorEditFields | { isPaused: boolean },
+		payload?: MonitorFields | MonitorEditFields | { isPaused: boolean },
 	) {
 		if (request.current || navigating) return;
 		const controller = new AbortController();
@@ -145,8 +157,18 @@ export function MonitorEditor({ monitor }: { monitor?: MonitorDto }) {
 				values.get("expectedStatus"),
 			) as MonitorFields["expectedStatus"],
 		};
-		if (url || !monitor) fields.url = url;
-		void mutate(monitor ? "save" : "create", fields);
+		if (monitor) {
+			if (url) fields.url = url;
+			void mutate("save", fields);
+		} else {
+			void mutate("create", {
+				...fields,
+				url,
+				...(channels !== undefined && {
+					channelIds: selectedChannelIds(values),
+				}),
+			});
+		}
 	}
 
 	function fieldError(field: Field) {
@@ -264,6 +286,25 @@ export function MonitorEditor({ monitor }: { monitor?: MonitorDto }) {
 								{fieldError("expectedStatus")}
 							</div>
 						</div>
+						{!monitor && channels !== undefined && (
+							<fieldset
+								className="monitor-fields"
+								aria-describedby={description("channelIds")}
+							>
+								<legend>Alert channels</legend>
+								{channels.length ? (
+									<AlertChannelOptions
+										channels={channels}
+										selected={channels.map(({ id }) => id)}
+									/>
+								) : (
+									<p className="monitor-hint">
+										You can add verified channels after creating the monitor.
+									</p>
+								)}
+								{fieldError("channelIds")}
+							</fieldset>
+						)}
 					</fieldset>
 					{formFailure && !formFailure.field && (
 						<p className="monitor-field-error" role="alert">

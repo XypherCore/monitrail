@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { MonitorInputError, parseMonitorFields, parseMonitorUpdate } from "./input.ts";
+import { MonitorInputError, parseMonitorChannelSelection, parseMonitorFields, parseMonitorUpdate } from "./input.ts";
 
 const fields = {
   name: "Example",
@@ -7,6 +7,7 @@ const fields = {
   intervalSeconds: 300,
   expectedStatus: "2xx",
 };
+const channel = "abcdefab-abcd-4abc-8abc-abcdefabcdef";
 
 describe("monitor settings", () => {
   it("applies the documented defaults when creating a monitor", () => {
@@ -39,5 +40,25 @@ describe("monitor settings", () => {
     expect(() => parseMonitorFields({ ...fields, userId: "other" }, "create")).toThrow(MonitorInputError);
     expect(() => parseMonitorUpdate({ ...fields, isPaused: false })).toThrow(MonitorInputError);
     expect(parseMonitorUpdate({ isPaused: false })).toEqual({ kind: "pause", isPaused: false });
+  });
+
+  it("preserves omission and explicit empty subscriptions on create", () => {
+    expect(parseMonitorFields(fields, "create")).not.toHaveProperty("channelIds");
+    expect(parseMonitorFields({ ...fields, channelIds: [] }, "create").channelIds).toEqual([]);
+    expect(parseMonitorFields({ ...fields, channelIds: [channel.toUpperCase()] }, "create").channelIds)
+      .toEqual([channel]);
+    expect(() => parseMonitorUpdate({ ...fields, channelIds: [] })).toThrow(MonitorInputError);
+  });
+
+  it("accepts only bounded, distinct channel IDs in subscription updates", () => {
+    expect(parseMonitorChannelSelection({ channelIds: [] })).toEqual([]);
+    expect(parseMonitorChannelSelection({ channelIds: [channel.toUpperCase()] })).toEqual([channel]);
+    for (const value of [
+      {}, { channelIds: null }, { channelIds: ["invalid"] }, { channelIds: [channel, channel.toUpperCase()] },
+      { channelIds: [], userId: channel },
+      { channelIds: Array.from({ length: 4 }, (_, i) => channel.slice(0, -1) + i) },
+    ]) {
+      expect(() => parseMonitorChannelSelection(value)).toThrow(MonitorInputError);
+    }
   });
 });

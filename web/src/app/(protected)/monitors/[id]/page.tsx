@@ -6,6 +6,7 @@ import { MonitorEditor } from "../../../../components/monitor-editor";
 import { MonitorHistory } from "../../../../components/monitor-history";
 import { MonitorRefresh } from "../../../../components/monitor-refresh";
 import { MonitorStatus } from "../../../../components/monitor-status";
+import { MonitorSubscriptions } from "../../../../components/monitor-subscriptions";
 import type { IncidentDto, MonitorDto } from "../../../../data/access";
 import {
 	MONITOR_RANGES,
@@ -237,6 +238,13 @@ export default async function MonitorPage({
 	if (!result) notFound();
 	const { monitor, insights, openIncidentStartedAt } = result;
 	const statusNote = statusNotes[monitor.status];
+	const [ownedChannels, subscriptions] = await Promise.all([
+		access.listChannels(),
+		access.listMonitorChannels(id),
+	]);
+	const channels = ownedChannels
+		.filter((channel) => channel.isVerified)
+		.map(({ id: channelId, label, type }) => ({ id: channelId, label, type }));
 
 	return (
 		<>
@@ -286,6 +294,11 @@ export default async function MonitorPage({
 					range={range}
 				/>
 			</Suspense>
+			<MonitorSubscriptions
+				monitorId={id}
+				channels={channels}
+				selected={subscriptions.map((channel) => channel.id)}
+			/>
 			<MonitorEditor key={monitor.id} monitor={monitor} />
 		</>
 	);

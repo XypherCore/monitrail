@@ -47,6 +47,18 @@ describe("Phase 4 owner-bound monitor changes", () => {
     );
     return id;
   }
+  async function seedChannel(owner: string, verified = true) {
+    const id = randomUUID();
+    await client.query(
+      "INSERT INTO alert_channels(id,user_id,type,label,config_enc,is_verified) VALUES($1,$2,'webhook','Fixture','fixture-envelope',$3)",
+      [id, owner, verified],
+    );
+    return id;
+  }
+  async function subscriptions(monitorId: string) {
+    const channels = await createDataAccess(db, ownerA).listMonitorChannels(monitorId);
+    return channels.map((channel) => channel.id).sort();
+  }
   async function record(id: string) {
     const { rows } = await client.query<Record<string, unknown>>(
       "SELECT *, next_check_at::text AS due FROM monitors WHERE id=$1",
@@ -111,6 +123,50 @@ describe("Phase 4 owner-bound monitor changes", () => {
       status: "pending",
       url: "https://check.example.invalid/status?…",
     });
+  });
+
+  it("defaults to the owner's verified channels and supports explicit subscription selection", async () => {
+    const first = await seedChannel(ownerA);
+    const second = await seedChannel(ownerA);
+    await seedChannel(ownerA, false);
+    await seedChannel(ownerB);
+
+    const defaults = await access().createMonitor(createFields());
+    const disabled = await access().createMonitor({ ...createFields(), channelIds: [] });
+    const selected = await access().createMonitor({ ...createFields(), channelIds: [second] });
+
+    expect(await subscriptions(defaults.id)).toEqual([first, second].sort());
+    expect(await subscriptions(disabled.id)).toEqual([]);
+    expect(await subscriptions(selected.id)).toEqual([second]);
+  });
+
+  it("rejects foreign and unverified create subscriptions without persisting a monitor", async () => {
+    const own = await seedChannel(ownerA);
+    for (const channel of [await seedChannel(ownerB), await seedChannel(ownerA, false), randomUUID()]) {
+      await expect(access().createMonitor({ ...createFields(), channelIds: [own, channel] }))
+        .rejects.toMatchObject({ code: "channel_selection" });
+    }
+    expect(await total("monitors")).toBe(0);
+  });
+
+  it("changes verified owned subscriptions atomically and does not backfill existing incidents", async () => {
+    const selected = await seedChannel(ownerA);
+    const unverified = await seedChannel(ownerA, false);
+    const foreign = await seedChannel(ownerB);
+    const monitor = await seed(ownerA, "owner.example.invalid");
+    const foreignMonitor = await seed(ownerB, "foreign.example.invalid");
+    const data = createDataAccess(db, ownerA);
+    await markDown(monitor);
+
+    expect(await access().replaceMonitorChannels(monitor, [selected])).toBe(true);
+    expect(await access().replaceMonitorChannels(monitor, [unverified])).toBe(false);
+    expect(await access().replaceMonitorChannels(monitor, [foreign])).toBe(false);
+    expect(await access().replaceMonitorChannels(foreignMonitor, [selected])).toBe(false);
+    expect(await data.attachMonitorChannel(monitor, unverified)).toBe(false);
+    expect(await subscriptions(monitor)).toEqual([selected]);
+    expect(await access().replaceMonitorChannels(monitor, [])).toBe(true);
+    expect(await subscriptions(monitor)).toEqual([]);
+    expect(await total("alert_outbox")).toBe(0);
   });
 
   it.each(["user", "global", "host"] as const)("enforces the %s cap on overlapping creates", async (cap) => {
