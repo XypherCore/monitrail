@@ -13,6 +13,7 @@ import {
   type WebhookProvider,
 } from "../../../shared/ssrf/address.ts";
 import { awaitSignal } from "../../../shared/ssrf/io.ts";
+import { isTelegramBotToken, isTelegramChatId } from "../alerts/telegram-target.ts";
 
 type ErrorCode = "blocked" | "dns" | "timeout" | "connect" | "tls" | "bad_status" | "other";
 const messages: Record<ErrorCode, string> = {
@@ -70,6 +71,39 @@ function hostname(url: URL): string {
 
 function blocked(): never {
   throw new WebGuardError("blocked");
+}
+
+function webhookTarget(input: string, provider: WebhookProvider): URL {
+  try {
+    return parseWebhookTarget(input, provider);
+  } catch {
+    blocked();
+  }
+}
+
+function serializePayload(payload: unknown): string {
+  try {
+    const serialized = JSON.stringify(payload);
+    if (serialized === undefined) throw new Error();
+    return serialized;
+  } catch {
+    throw new WebGuardError("other");
+  }
+}
+
+// The fixed Telegram API has an application-level success field. Only this
+// trusted provider's bounded reply is read, and the result stays a boolean.
+async function telegramSucceeded(response: IncomingMessage): Promise<boolean> {
+  const chunks: Buffer[] = [];
+  let bytes = 0;
+  for await (const data of response) {
+    const chunk = Buffer.isBuffer(data) ? data : Buffer.from(data);
+    bytes += chunk.length;
+    if (bytes > 65_536) return false;
+    chunks.push(chunk);
+  }
+  const reply: unknown = JSON.parse(Buffer.concat(chunks, bytes).toString("utf8"));
+  return typeof reply === "object" && reply !== null && "ok" in reply && reply.ok === true;
 }
 
 /**
@@ -174,6 +208,7 @@ export function createWebGuard(options: Options, dependencies: Partial<Dependenc
     url: URL,
     data: string,
     signal: AbortSignal,
+    confirmTelegram = false,
   ): Promise<{ statusCode: number }> {
     const host = hostname(url);
     const lookupAtConnect = dialLookup(host, signal);
@@ -220,11 +255,14 @@ export function createWebGuard(options: Options, dependencies: Partial<Dependenc
             // Neither response headers nor body data is exposed or persisted.
             response.on("error", () => {});
             const statusCode = response.statusCode;
-            try {
-              response.destroy();
-            } catch {
-              /* Cleanup cannot replace the received status. */
+            if (signal.aborted || !confirmTelegram) {
+              try {
+                response.destroy();
+              } catch {
+                /* Cleanup cannot replace the received status. */
+              }
             }
+            if (signal.aborted) return;
             if (
               !Number.isInteger(statusCode) ||
               statusCode === undefined ||
@@ -232,6 +270,14 @@ export function createWebGuard(options: Options, dependencies: Partial<Dependenc
               statusCode > 299
             ) {
               rejectResult(new WebGuardError("bad_status"));
+            } else if (confirmTelegram) {
+              void telegramSucceeded(response).then(
+                (ok) => {
+                  if (ok) resolveResult({ statusCode });
+                  else rejectResult(new WebGuardError("bad_status"));
+                },
+                () => rejectResult(new WebGuardError("bad_status")),
+              );
             } else resolveResult({ statusCode });
           });
           outgoing.on("error", (error) => rejectResult(connectionError(error)));
@@ -274,28 +320,39 @@ export function createWebGuard(options: Options, dependencies: Partial<Dependenc
         return { url: url.href, host };
       });
     },
+    validateWebhook(
+      input: string,
+      provider: WebhookProvider,
+    ): Promise<{ url: string; host: string }> {
+      return budget(async (signal) => {
+        const url = webhookTarget(input, provider);
+        const host = await hostAllowed(url, signal);
+        await addresses(hostname(url), signal);
+        return { url: url.href, host };
+      });
+    },
     sendWebhook(
       input: string,
       provider: WebhookProvider,
       payload: unknown,
     ): Promise<{ statusCode: number }> {
       return budget(async (signal) => {
-        let url: URL;
-        try {
-          url = parseWebhookTarget(input, provider);
-        } catch {
-          blocked();
-        }
+        const url = webhookTarget(input, provider);
         await hostAllowed(url, signal);
-        let data: string;
-        try {
-          const serialized = JSON.stringify(payload);
-          if (serialized === undefined) throw new Error();
-          data = serialized;
-        } catch {
-          throw new WebGuardError("other");
-        }
-        return post(url, data, signal);
+        if (provider === "discord") url.searchParams.set("wait", "true");
+        return post(url, serializePayload(payload), signal);
+      });
+    },
+    sendTelegram(botToken: string, chatId: string, text: string): Promise<{ statusCode: number }> {
+      return budget(async (signal) => {
+        if (!isTelegramBotToken(botToken) || !isTelegramChatId(chatId)) blocked();
+        const url = new URL(`https://api.telegram.org/bot${botToken}/sendMessage`);
+        await hostAllowed(url, signal);
+        return post(url, serializePayload({
+          chat_id: chatId,
+          text,
+          link_preview_options: { is_disabled: true },
+        }), signal, true);
       });
     },
   };

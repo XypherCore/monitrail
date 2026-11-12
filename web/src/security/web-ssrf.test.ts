@@ -31,7 +31,7 @@ function response(statusCode = 204) {
   return stream;
 }
 
-function fixture() {
+function fixture(makeReply: () => IncomingMessage = response) {
   const calls: Call[] = [];
   const replies: IncomingMessage[] = [];
   const resolve = vi.fn(async () => publicRecords);
@@ -45,7 +45,7 @@ function fixture() {
       queueMicrotask(() => {
         const connected = (address: string) => {
           call.connectedAddress = address;
-          const reply = response();
+          const reply = makeReply();
           replies.push(reply);
           callback(reply);
         };
@@ -144,6 +144,80 @@ describe("Node monitor admission", () => {
 });
 
 describe("Node guarded webhook transport", () => {
+  it("validates an exact webhook and its public DNS without posting", async () => {
+    const f = fixture();
+    expect(await f.guard.validateWebhook("https://discord.com/api/webhooks/123/fixture", "discord"))
+      .toEqual({ url: "https://discord.com/api/webhooks/123/fixture", host: "discord.com" });
+    f.resolve.mockResolvedValueOnce([{ address: "192.168.0.1", family: 4 }]);
+    await expect(f.guard.validateWebhook(target, "webhook")).rejects.toMatchObject({ code: "blocked" });
+    await expect(f.guard.validateWebhook("http://recipient.example.test/", "webhook"))
+      .rejects.toMatchObject({ code: "blocked" });
+    expect(f.request).not.toHaveBeenCalled();
+  });
+
+  it("adds Discord confirmation only after the user URL passes the allowlist", async () => {
+    const f = fixture();
+    await f.guard.sendWebhook("https://discord.com/api/webhooks/123/fixture", "discord", {});
+    expect(f.calls[0].options.path).toBe("/api/webhooks/123/fixture?wait=true");
+    await expect(f.guard.sendWebhook(
+      "https://discord.com/api/webhooks/123/fixture?wait=false", "discord", {},
+    )).rejects.toMatchObject({ code: "blocked" });
+    expect(f.request).toHaveBeenCalledOnce();
+  });
+
+  it("uses only a fixed Telegram API target, checks the success flag and disables previews", async () => {
+    const botToken = "123456:fixture_Bot_Token_Is_Not_Real";
+    const f = fixture(() => {
+      const reply = response(200);
+      (reply as unknown as PassThrough).end('{"ok":true,"result":{"ignored":"fixture"}}');
+      return reply;
+    });
+    await expect(f.guard.sendTelegram(botToken, "123456", "fixture test")).resolves.toEqual({ statusCode: 200 });
+    expect(f.calls[0].options).toMatchObject({
+      hostname: "api.telegram.org",
+      path: `/bot${botToken}/sendMessage`,
+      method: "POST",
+    });
+    expect(JSON.parse(String(f.calls[0].body))).toEqual({
+      chat_id: "123456",
+      text: "fixture test",
+      link_preview_options: { is_disabled: true },
+    });
+    await expect(f.guard.sendTelegram(`${botToken}/getMe`, "123456", "x"))
+      .rejects.toMatchObject({ code: "blocked" });
+    await expect(f.guard.sendTelegram(botToken, "-123456", "x"))
+      .rejects.toMatchObject({ code: "blocked" });
+    expect(f.request).toHaveBeenCalledOnce();
+  });
+
+  it.each([
+    [302, '{"ok":true}'],
+    [200, '{"ok":false,"description":"sensitive provider response"}'],
+    [200, JSON.stringify({ ok: true, result: "x".repeat(65_536) })],
+    [200, "invalid provider response"],
+  ] as const)("fails closed on Telegram status or response (%i)", async (status, body) => {
+    const f = fixture(() => {
+      const reply = response(status);
+      (reply as unknown as PassThrough).end(body);
+      return reply;
+    });
+    const failure = await f.guard.sendTelegram("123456:fixture_Bot_Token_Is_Not_Real", "123456", "x")
+      .catch((error) => error);
+    expect(failure).toMatchObject({ code: "bad_status" });
+    expect(String(failure)).not.toMatch(/sensitive provider|fixture_Bot_Token/);
+    expect(f.request).toHaveBeenCalledOnce();
+  });
+
+  it("does not extend the transport budget for a stalled Telegram response", async () => {
+    vi.useFakeTimers();
+    const f = fixture(() => response(200));
+    const result = expect(f.guard.sendTelegram("123456:fixture_Bot_Token_Is_Not_Real", "123456", "x"))
+      .rejects.toMatchObject({ code: "timeout" });
+    await vi.advanceTimersByTimeAsync(5000);
+    await result;
+    expect(f.replies[0].destroy).toHaveBeenCalled();
+  });
+
   it("dials only the connect-time vetted answer with the original HTTP and TLS identity", async () => {
     const f = fixture();
     expect(await f.guard.sendWebhook(target, "webhook", { event: "fixture" })).toEqual({

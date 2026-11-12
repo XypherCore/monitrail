@@ -19,7 +19,8 @@
     "auth:verify-local": "node --env-file-if-exists=.env.local --env-file-if-exists=.env.phase3b.local scripts/auth/verify-local.ts",
     "auth:verify-production": "node --env-file-if-exists=.env.local --env-file-if-exists=.env.phase3b.local scripts/auth/verify-production.ts",
     "db:verify-postgres": "node --env-file-if-exists=.env.phase3b.local scripts/db/rev2.ts verify --confirm-clean-project",
-    "auth:invite": "node --env-file-if-exists=.env.phase3b.local scripts/auth/create-invite.ts --confirm-invite"
+    "auth:invite": "node --env-file-if-exists=.env.phase3b.local scripts/auth/create-invite.ts --confirm-invite",
+    "alerts:rotate-keys": "node scripts/alerts/rotate-channel-keys.ts"
   },
   "dependencies": {
     "@neondatabase/serverless": "1.2.0",
