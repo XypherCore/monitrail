@@ -89,7 +89,10 @@ bar, recent incidents, "Powered by Monitrail" footer link. Core content
 works with JavaScript disabled.
 - Overall status precedence: Down > Unknown > Confirming > Pending > Up.
   Paused and Blocked monitors are listed greyed and excluded from the
-  overall status.
+  overall status. If every listed monitor is Paused or Blocked, show
+  Unknown and explain that there are no active monitors.
 - Public incident fields: started, resolved, duration, and a human cause
   label (for example "Connection timed out"). No URL, no raw error text.
+  Show the newest 10 incidents that overlap the past 30 days, including
+  ongoing incidents.
 - An empty or unpublished page is a generic 404.

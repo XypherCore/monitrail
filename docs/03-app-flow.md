@@ -11,7 +11,7 @@
 | `/channels` | user | Add, verify and test alert channels |
 | `/status-pages` | user | Create pages, pick monitors, publish |
 | `/settings` | user | Account info, delete account and all data |
-| `/status/[slug]` | public | Public status page (cached, see doc 02) |
+| `/status/[slug]` | public | Public status page with cached history (see doc 02) |
 | `/bot` | public | Checker identity, abuse contact, block request |
 | `/api/health` | public | 200 or 503 only, no body details |
 | 404 / error | public | Friendly pages, no stack traces |
@@ -67,7 +67,9 @@ Status pages -> New page -> title and slug (3 to 40 chars, lowercase,
 reserved words blocked, slugs deleted within 30 days cannot be reused) ->
 pick 1 to 10 monitors, toggle show-URL per monitor (off by default) ->
 publish (needs at least one monitor) -> copy link. Any later change
-invalidates the cached page immediately (doc 02).
+invalidates the history cache immediately (doc 02).
+Removing the last monitor returns the page to draft. Add a monitor and
+publish again to restore public visibility.
 
 **4. Connect Telegram**
 Channels -> Connect Telegram -> app shows a `t.me` deep link with a one-time

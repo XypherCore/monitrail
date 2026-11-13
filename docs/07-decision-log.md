@@ -85,6 +85,10 @@ first, then the code.
 - **Hostname and blocklist semantics**, including redirect hops.
 - **Service capabilities** separated from the user DAL.
 - **Status-page cardinality, projection, precedence, slug lifecycle.**
+- **Public status page decisions**: all paused or blocked means Unknown
+  with a note that no monitors are active. Recent incidents are the newest
+  10 overlapping the last 30 days. Losing the final monitor makes the page
+  a draft. The owner approved the reserved slug list in doc 05.
 - **Alert subscriptions and webhook payload v1.**
 - **Alert delivery decisions**: retry uncertain acknowledgments with the
   same event ID. Back off by 11, 22, 44, 88, and 176 minutes, with a

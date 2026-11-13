@@ -67,8 +67,9 @@ export function createMonitorAccess(
   userId: string,
   appUrl: string,
   guardDependencies?: GuardDependencies,
+  invalidateStatus?: (slugs: readonly string[]) => void | Promise<void>,
 ) {
-  const { deleteMonitor, replaceMonitorChannels } = createDataAccess(db, userId);
+  const { replaceMonitorChannels } = createDataAccess(db, userId);
   const ownerId = userId.toLowerCase();
   const guard = createWebGuard(
     {
@@ -111,6 +112,22 @@ export function createMonitorAccess(
     });
   }
 
+  async function changePublicMonitor(id: string, action: (tx: DataExecutor) => Promise<boolean>) {
+    const { updated, slugs } = await write(async (tx) => {
+      const pages = invalidateStatus ? await rows<{ slug: string }>(tx, sql`
+        SELECT p.slug FROM status_page_monitors l
+        JOIN status_pages p ON p.id=l.status_page_id AND p.user_id=l.user_id
+        WHERE l.monitor_id=${id} AND l.user_id=${ownerId}
+      `) : [];
+      return { updated: await action(tx), slugs: pages.map((page) => page.slug) };
+    });
+    if (updated && slugs.length) {
+      try { await invalidateStatus?.(slugs); }
+      catch { /* The live public projection still enforces visibility after commit. */ }
+    }
+    return updated;
+  }
+
   async function ownedForUpdate(tx: DataExecutor, id: string) {
     const [current] = await rows<StoredMonitor>(tx, sql`
       SELECT url,host,expected_status,is_paused,pause_reason
@@ -150,7 +167,12 @@ export function createMonitorAccess(
   }
 
   return {
-    deleteMonitor,
+    async deleteMonitor(id: string) {
+      if (!isMonitorId(id)) return false;
+      return changePublicMonitor(id, async (tx) => (
+        await rows(tx, sql`DELETE FROM monitors WHERE id=${id} AND user_id=${ownerId} RETURNING id`)
+      ).length === 1);
+    },
     replaceMonitorChannels,
 
     async createMonitor(input: MonitorFields): Promise<{ id: string }> {
@@ -208,7 +230,7 @@ export function createMonitorAccess(
         target = await guard.validateMonitor(fields.url);
       }
 
-      return write(async (tx) => {
+      return changePublicMonitor(id, async (tx) => {
         if (target) await lockGlobalQuota(tx);
         const current = await ownedForUpdate(tx, id);
         if (!current) return false;
@@ -247,7 +269,7 @@ export function createMonitorAccess(
 
     async setMonitorPaused(id: string, isPaused: boolean): Promise<boolean> {
       if (!isMonitorId(id)) return false;
-      return write(async (tx) => {
+      return changePublicMonitor(id, async (tx) => {
         const current = await ownedForUpdate(tx, id);
         if (!current) return false;
         if (current.is_paused === isPaused) return true;

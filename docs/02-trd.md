@@ -308,12 +308,15 @@ scope in v1.
   and is excluded from availability as a coverage gap. While waiting for a
   first result, show Pending for up to 10 minutes from creation, resume,
   or the latest URL or expected-status change, then show Unknown.
-- Public status pages are cached with tag `status:{slug}` and a maximum
-  staleness of 60 s. Every mutation that can change a public page (publish,
-  unpublish, slug change, add or remove monitor, `show_url` toggle, monitor
-  edit, pause, delete, account deletion) calls `revalidateTag` for the
-  affected slugs. Tests prime the cache first, then perform each revocation
-  and require the next request to reflect it.
+- Public status requests read publication, monitor membership, current
+  status, and URL visibility from PostgreSQL. The response is `no-store`.
+  Availability bars and recent incidents use the `status:{slug}` tag and
+  have a maximum staleness of 60 s. Every mutation that can change a public
+  page (publish, unpublish, slug change, add or remove monitor, `show_url`
+  toggle, monitor edit, pause, delete, account deletion) calls
+  `revalidateTag` for the affected slugs with immediate expiration after
+  commit. Tests prime the history cache, then perform each revocation and
+  require the next request to reflect it.
 
 ### Privacy scope
 "No personal identifying information" applies to the maintainer for now:

@@ -73,6 +73,28 @@ describe("Phase 4 owner-bound monitor changes", () => {
     );
     return rows.map((row) => row.kind);
   }
+
+  it("invalidates linked public pages after a committed edit, pause, and delete", async () => {
+    const id = await seed(ownerA, "linked.example.invalid");
+    const { rows: [{ id: page }] } = await client.query<{ id: string }>(
+      "INSERT INTO status_pages(user_id,slug,title,is_published) VALUES($1,'linked-status','Status',true) RETURNING id",
+      [ownerA],
+    );
+    await client.query(
+      "INSERT INTO status_page_monitors(status_page_id,monitor_id,user_id,position) VALUES($1,$2,$3,0)",
+      [page, id, ownerA],
+    );
+    const invalidate = vi.fn();
+    const ownerAccess = createMonitorAccess(db, ownerA, appUrl, { resolve: resolvePublic }, invalidate);
+    expect(await ownerAccess.editMonitor(id, { ...editFields, name: "Updated" })).toBe(true);
+    expect(await ownerAccess.setMonitorPaused(id, true)).toBe(true);
+    expect(await ownerAccess.deleteMonitor(id)).toBe(true);
+    expect(invalidate.mock.calls).toEqual([
+      [["linked-status"]], [["linked-status"]], [["linked-status"]],
+    ]);
+    expect(await ownerAccess.deleteMonitor(id)).toBe(false);
+    expect(invalidate).toHaveBeenCalledTimes(3);
+  });
   async function markDown(id: string) {
     await client.query(
       `UPDATE monitors SET status='down', failures=2, successes=1, streak_started_at=now(),

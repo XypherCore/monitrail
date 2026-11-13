@@ -84,11 +84,15 @@ pending and sending rows for the retry sweep.
 **status_pages**: id, user_id, slug (UNIQUE on lower(slug), 3 to 40 chars,
 lowercase letters, digits, hyphens, reserved words blocked), title,
 is_published, created_at. UNIQUE (id, user_id).
+Reserved slugs are `admin`, `api`, `auth`, `bot`, `channels`, `dashboard`,
+`health`, `login`, `logout`, `monitors`, `new`, `settings`, `status`,
+`status-pages`, `support`, and `www`.
 
 **status_page_monitors**: status_page_id, monitor_id, user_id, position,
 show_url (default false). PK (status_page_id, monitor_id). Composite FKs:
 (status_page_id, user_id) -> status_pages (id, user_id) and (monitor_id,
 user_id) -> monitors (id, user_id).
+Deleting the final monitor association returns a published page to draft.
 
 **slug_tombstones**: slug (PK), released_at. A deleted or renamed slug cannot
 be claimed by anyone for 30 days.

@@ -1,5 +1,6 @@
 import {
   type Availability,
+  type AvailabilityDay,
   type HistoryInput,
   type Latency,
   type LatencyBucket,
@@ -188,6 +189,31 @@ function windowFrom(createdAt: number, start: number, end: number): TimeSpan {
   return { start: Math.min(Math.max(createdAt, start), end), end };
 }
 
+export function firstAvailabilityDay(now: Date): number {
+  return (Math.floor(+now / dayMs) - dailySegments + 1) * dayMs;
+}
+
+function availabilityDays(
+  prepared: ReturnType<typeof prepareHistory>,
+  createdAt: Date,
+  now: Date,
+): AvailabilityDay[] {
+  const firstDay = firstAvailabilityDay(now);
+  return Array.from({ length: dailySegments }, (_, index) => {
+    const start = firstDay + index * dayMs;
+    const day = windowFrom(+createdAt, start, Math.min(start + dayMs, +now));
+    const incidentCount = day.start < day.end
+      ? prepared.incidents.filter((span) => span.start < day.end && span.end > day.start).length
+      : 0;
+    return { ...availabilityFor(prepared, day), start, incidentCount };
+  });
+}
+
+export function buildAvailabilityDays(history: HistoryInput, now: Date): AvailabilityDay[] {
+  const timeline = windowFrom(+history.createdAt, firstAvailabilityDay(now), +now);
+  return availabilityDays(prepareHistory(history, timeline), history.createdAt, now);
+}
+
 export function summarizeMonitor(history: HistoryInput, now: Date): MonitorSummaryMetrics {
   const window = windowFrom(+history.createdAt, +now - dayMs, +now);
   const prepared = prepareHistory(history, window);
@@ -204,19 +230,9 @@ export function buildMonitorInsights(
 ): MonitorInsights {
   const { durationMs, bucketMs } = MONITOR_RANGES[range];
   const window = windowFrom(+history.createdAt, +now - durationMs, +now);
-  const today = Math.floor(+now / dayMs) * dayMs;
-  const firstDay = today - (dailySegments - 1) * dayMs;
-  const timeline = windowFrom(+history.createdAt, Math.min(window.start, firstDay), +now);
+  const timeline = windowFrom(+history.createdAt, Math.min(window.start, firstAvailabilityDay(now)), +now);
   const prepared = prepareHistory(history, timeline);
   const samples = prepared.samples.filter(({ at }) => at >= window.start);
-  const days = Array.from({ length: dailySegments }, (_, index) => {
-    const start = firstDay + index * dayMs;
-    const day = windowFrom(+history.createdAt, start, Math.min(start + dayMs, +now));
-    const incidentCount = day.start < day.end
-      ? prepared.incidents.filter((span) => span.start < day.end && span.end > day.start).length
-      : 0;
-    return { ...availabilityFor(prepared, day), start, incidentCount };
-  });
   return {
     window,
     availability: availabilityFor(prepared, window),
@@ -225,6 +241,6 @@ export function buildMonitorInsights(
     incidentBands: prepared.downtime.map((span) => clip(span, window)).filter(
       ({ start, end }) => start < end,
     ),
-    days,
+    days: availabilityDays(prepared, history.createdAt, now),
   };
 }

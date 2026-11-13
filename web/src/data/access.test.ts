@@ -33,7 +33,7 @@ describe("ownership data-access layer against PostgreSQL migrations", () => {
 
   beforeEach(async () => {
     // This database is private in-memory PostgreSQL, never DATABASE_URL.
-    await client.exec("TRUNCATE users RESTART IDENTITY CASCADE");
+    await client.exec("TRUNCATE users, slug_tombstones RESTART IDENTITY CASCADE");
     await client.query(
       "INSERT INTO users(id,email,name) VALUES($1,'owner-a@example.invalid','Fixture A'),($2,'owner-b@example.invalid','Fixture B')",
       [ownerA, ownerB],
@@ -88,6 +88,24 @@ describe("ownership data-access layer against PostgreSQL migrations", () => {
       expect(() => createDataAccess({ execute }, actor as string)).toThrow(DataAccessError);
     }
     expect(execute).not.toHaveBeenCalled();
+  });
+
+  it("invalidates only the deleted owner's slugs after the account cascade commits", async () => {
+    await client.query("UPDATE status_pages SET is_published=true WHERE id=$1", [pageA]);
+    const invalidate = vi.fn(async (_slugs: readonly string[]): Promise<void> => {
+      const pages = await client.query("SELECT slug FROM status_pages ORDER BY slug");
+      const reserved = await client.query(
+        "SELECT slug FROM slug_tombstones WHERE released_at > clock_timestamp()",
+      );
+      expect(pages.rows).toEqual([{ slug: "owner-b" }]);
+      expect(reserved.rows).toEqual([{ slug: "owner-a" }]);
+    });
+    const own = createDataAccess(db, ownerA, () => clock, invalidate);
+    expect(await own.deleteAccount()).toBe(true);
+    expect(invalidate).toHaveBeenCalledExactlyOnceWith(["owner-a"]);
+    await expect(invalidate.mock.results[0].value).resolves.toBeUndefined();
+    expect(await own.deleteAccount()).toBe(false);
+    expect(invalidate).toHaveBeenCalledTimes(1);
   });
 
   it("filters all lists and direct object reads by the authenticated owner", async () => {

@@ -15,6 +15,13 @@
       "when": 1794452459531,
       "tag": "0001_alert_outbox_ready",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1794475405029,
+      "tag": "0002_status_page_lifecycle",
+      "breakpoints": true
     }
   ]
 }

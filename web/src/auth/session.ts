@@ -4,6 +4,7 @@ import { redirect } from "next/navigation";
 import { cache } from "react";
 import { createDataAccess } from "../data/access.ts";
 import { getRuntimeDatabase } from "../db/runtime.ts";
+import { invalidateStatusSlugs } from "../status-pages/public-runtime.ts";
 import { sanitizeNextPath } from "./redirect.ts";
 import { getAuthRuntime } from "./runtime.ts";
 
@@ -33,5 +34,5 @@ export async function requireUser(nextPath: string) {
 
 export async function getCurrentDataAccess() {
   const user = await requireUser("/dashboard");
-  return createDataAccess(getRuntimeDatabase(), user.id);
+  return createDataAccess(getRuntimeDatabase(), user.id, undefined, invalidateStatusSlugs);
 }
