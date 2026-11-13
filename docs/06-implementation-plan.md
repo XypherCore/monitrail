@@ -84,13 +84,14 @@ Status legend: [ ] open, [~] in progress, [x] done
   logs; a webhook that redirects or resolves to a private address is refused;
   an unverified Telegram chat receives nothing.
   See the [Phase 7 verification log](phase-7-verification.md).
-- [ ] **Phase 8: Public status pages.** Projection, status precedence, slug
+- [x] **Phase 8: Public status pages.** Projection, status precedence, slug
   rules and tombstones, tagged caching.
   Done when: cache-revocation tests prime the cache, then publish,
   unpublish, rename, hide URL, remove a monitor, delete a monitor and delete
   the account, and each next request reflects the change immediately;
   unpublished and unknown slugs return the same 404; the HTML contains no
   hidden URLs or private fields.
+  See the [Phase 8 verification log](phase-8-verification.md).
 
 ## Week 4 — Operations and hardening
 - [ ] **Phase 9: Maintenance and health.** Daily job (retention, DNS
