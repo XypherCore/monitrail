@@ -94,13 +94,14 @@ Status legend: [ ] open, [~] in progress, [x] done
   See the [Phase 8 verification log](phase-8-verification.md).
 
 ## Week 4 — Operations and hardening
-- [ ] **Phase 9: Maintenance and health.** Daily job (retention, DNS
+- [x] **Phase 9: Maintenance and health.** Daily job (retention, DNS
   revalidation, cleanup), heartbeat, `/api/health`, independent scheduled
   check (GitHub Actions every 15 minutes).
   Done when: running maintenance twice changes nothing the second time;
   stopping the Worker makes `/api/health` fail within 3 minutes and the
   external check report it; monitors that start resolving to private
   addresses are paused.
+  See the [Phase 9 verification log](phase-9-verification.md).
 - [ ] **Phase 10: Hardening and QA.** Security headers and CSP, per-flow
   rate limits, `/bot` page, account deletion, accessibility pass,
   Lighthouse check, CI (lint, typecheck, tests, secret scan), table-size
