@@ -3,6 +3,7 @@ import {
   INTERNAL_BODY_LIMIT_BYTES,
   INTERNAL_CLAIM_PATH,
   INTERNAL_INGEST_PATH,
+  INTERNAL_MAINTENANCE_PATH,
   INTERNAL_NONCE_HEADER,
   INTERNAL_SIGNATURE_HEADER,
   INTERNAL_TIMESTAMP_HEADER,
@@ -61,17 +62,48 @@ function setup() {
   const tasks: Array<() => Promise<void>> = [];
   const deliverOutbox = vi.fn<() => Promise<{ sent: number; retrying: number; failed: number }>>()
     .mockResolvedValue({ sent: 0, retrying: 0, failed: 0 });
+  const maintenance = vi.fn().mockResolvedValue({ removed: 3, dnsRevalidated: 2, blocked: 1 });
   const handlers = createInternalHandlers({
     secret: () => secret,
     checks: () => checks,
     consumeNonce,
     now: () => now,
+    maintenance: () => ({ runMaintenance: maintenance }),
     delivery: { afterResponse: (task) => { tasks.push(task); }, run: deliverOutbox },
   });
-  return { handlers, consumeNonce, checks, tasks, deliverOutbox };
+  return { handlers, consumeNonce, checks, tasks, deliverOutbox, maintenance };
 }
 
 describe("signed check endpoints", () => {
+  it("runs maintenance through the signed capability without scheduling check delivery", async () => {
+    const { handlers, maintenance, tasks } = setup();
+    const body = "{}";
+    const response = await handlers.maintenance(request(INTERNAL_MAINTENANCE_PATH, await signed(INTERNAL_MAINTENANCE_PATH, body), body));
+    expect(response.status).toBe(200);
+    expect(response.headers.get("cache-control")).toBe("no-store");
+    expect(await response.json()).toEqual({ removed: 3, dnsRevalidated: 2, blocked: 1 });
+    expect(maintenance).toHaveBeenCalledOnce();
+    expect(tasks).toHaveLength(0);
+  });
+
+  it.each(["", "null", "[]", '{"max":15}'])("refuses a maintenance body %j without calling the capability", async (body) => {
+    const { handlers, maintenance } = setup();
+    const response = await handlers.maintenance(request(INTERNAL_MAINTENANCE_PATH, await signed(INTERNAL_MAINTENANCE_PATH, body), body));
+    expect(response.status).toBe(400);
+    expect(maintenance).not.toHaveBeenCalled();
+  });
+
+  it("refuses a claim signature at maintenance and rejects replayed maintenance", async () => {
+    const { handlers, consumeNonce, maintenance } = setup();
+    const body = "{}";
+    const mismatched = await handlers.maintenance(request(INTERNAL_MAINTENANCE_PATH, await signed(INTERNAL_CLAIM_PATH, body), body));
+    expect(mismatched.status).toBe(401);
+    expect(maintenance).not.toHaveBeenCalled();
+    consumeNonce.mockResolvedValue(false);
+    const replayed = await handlers.maintenance(request(INTERNAL_MAINTENANCE_PATH, await signed(INTERNAL_MAINTENANCE_PATH, body), body));
+    expect(replayed.status).toBe(401);
+    expect(maintenance).not.toHaveBeenCalled();
+  });
   it("claims through a narrow capability and emits only the wire job and blocklist fields", async () => {
     const { handlers, consumeNonce, checks } = setup();
     const response = await handlers.claim(request(INTERNAL_CLAIM_PATH, await signed(INTERNAL_CLAIM_PATH, claim)));

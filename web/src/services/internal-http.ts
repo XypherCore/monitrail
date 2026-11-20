@@ -11,6 +11,7 @@ import {
   INTERNAL_CLAIM_PATH,
   INTERNAL_CLOCK_SKEW_SECONDS,
   INTERNAL_INGEST_PATH,
+  INTERNAL_MAINTENANCE_PATH,
   INTERNAL_NONCE_HEADER,
   INTERNAL_SIGNATURE_HEADER,
   INTERNAL_TIMESTAMP_HEADER,
@@ -19,12 +20,13 @@ import {
   type InternalPath,
 } from "../../../shared/checks/signing.ts";
 import { awaitSignal } from "../../../shared/ssrf/io.ts";
-import type { CheckCapabilities, OutboxCapability } from "./capabilities.ts";
+import type { CheckCapabilities, MaintenanceCapability, OutboxCapability } from "./capabilities.ts";
 
 type Dependencies = {
   secret(): unknown;
   checks(): CheckCapabilities;
   consumeNonce(nonce: string): Promise<boolean>;
+  maintenance?(): MaintenanceCapability;
   now?(): Date;
   delivery?: {
     afterResponse(task: () => Promise<void>): void;
@@ -32,7 +34,7 @@ type Dependencies = {
   };
 };
 type SignedHeaders = { nonce: string; timestamp: string; seconds: number; signature: string };
-type Operation = (body: Uint8Array<ArrayBuffer>) => Promise<ClaimResponse | IngestResponse>;
+type Operation = (body: Uint8Array<ArrayBuffer>) => Promise<ClaimResponse | IngestResponse | Awaited<ReturnType<MaintenanceCapability["runMaintenance"]>>>;
 
 const privateHeaders = {
   "cache-control": "no-store",
@@ -150,7 +152,7 @@ export function createInternalHandlers(dependencies: Dependencies) {
       if (!timingSafeEqual(Buffer.from(digest), Buffer.from(signed.signature, "hex"))) return fail(401);
       if (!(await dependencies.consumeNonce(signed.nonce))) return fail(401);
       const response = Response.json(await operation(body), { headers: privateHeaders });
-      const delivery = dependencies.delivery;
+      const delivery = path === INTERNAL_MAINTENANCE_PATH ? undefined : dependencies.delivery;
       try {
         delivery?.afterResponse(async () => {
           try {
@@ -169,6 +171,15 @@ export function createInternalHandlers(dependencies: Dependencies) {
   }
 
   return {
+    maintenance(request: Request) {
+      return handle(request, INTERNAL_MAINTENANCE_PATH, async (body) => {
+        parseBody(body, (input) => {
+          if (!input || typeof input !== "object" || Array.isArray(input) || Object.keys(input).length) throw new Error();
+        });
+        if (!dependencies.maintenance) throw new Error();
+        return dependencies.maintenance().runMaintenance();
+      });
+    },
     claim(request: Request) {
       return handle(request, INTERNAL_CLAIM_PATH, async (body) => {
         const input = parseBody(body, parseClaimRequest);

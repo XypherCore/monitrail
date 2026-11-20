@@ -3,7 +3,8 @@ export const INTERNAL_CLOCK_SKEW_SECONDS = 60;
 export const INTERNAL_NONCE_TTL_SECONDS = 120;
 export const INTERNAL_CLAIM_PATH = "/api/internal/claim";
 export const INTERNAL_INGEST_PATH = "/api/internal/ingest";
-export type InternalPath = typeof INTERNAL_CLAIM_PATH | typeof INTERNAL_INGEST_PATH;
+export const INTERNAL_MAINTENANCE_PATH = "/api/internal/maintenance";
+export type InternalPath = typeof INTERNAL_CLAIM_PATH | typeof INTERNAL_INGEST_PATH | typeof INTERNAL_MAINTENANCE_PATH;
 
 export const INTERNAL_TIMESTAMP_HEADER = "x-monitrail-ts";
 export const INTERNAL_NONCE_HEADER = "x-monitrail-nonce";
@@ -54,7 +55,7 @@ export async function signInternalRequest(
   const bytes = new Uint8Array(encoder.encode(body));
   if (
     !isInternalSecret(secret) ||
-    (path !== INTERNAL_CLAIM_PATH && path !== INTERNAL_INGEST_PATH) ||
+    (path !== INTERNAL_CLAIM_PATH && path !== INTERNAL_INGEST_PATH && path !== INTERNAL_MAINTENANCE_PATH) ||
     !Number.isSafeInteger(seconds) || seconds < 0 ||
     !isInternalUuid(nonce) ||
     bytes.byteLength > INTERNAL_BODY_LIMIT_BYTES

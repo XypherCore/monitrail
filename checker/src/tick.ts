@@ -20,7 +20,7 @@ import { createWorkerGuard } from "../../shared/ssrf/worker.ts";
 export const CHECK_CRON = "* * * * *";
 const PARALLEL_CHECKS = 6;
 // The control requests cannot outlive the server's check lease.
-const LEASE_WINDOW_MS = 120_000;
+export const LEASE_WINDOW_MS = 120_000;
 
 export type CheckerEnv = Readonly<{
   APP_URL: string;
@@ -38,7 +38,7 @@ export type CheckTickMetrics = {
   errors: number;
 };
 
-function applicationOrigin(appUrl: string): string {
+export function applicationOrigin(appUrl: string): string {
   checkerUserAgent(appUrl);
   const url = new URL(appUrl);
   if (url.protocol !== "https:" && !["localhost", "127.0.0.1", "[::1]"].includes(url.hostname)) {
@@ -47,7 +47,7 @@ function applicationOrigin(appUrl: string): string {
   return url.origin;
 }
 
-async function readControlJSON(response: Response, signal: AbortSignal): Promise<unknown> {
+export async function readControlJSON(response: Response, signal: AbortSignal): Promise<unknown> {
   if (!response.ok || response.redirected || !response.body) {
     throw new Error("Internal request failed.");
   }

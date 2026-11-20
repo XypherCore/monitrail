@@ -20,6 +20,10 @@ async function controlResponse(request) {
   ) return new Response(null, { status: 400 });
 
   const body = await request.json();
+  if (
+    request.url === "https://monitor.example/api/internal/maintenance" &&
+    body !== null && typeof body === "object" && Object.keys(body).length === 0
+  ) return Response.json({ removed: 3, dnsRevalidated: 2, blocked: 1 });
   if (request.url === "https://monitor.example/api/internal/claim" && body.max === 15) {
     return Response.json({
       jobs: [

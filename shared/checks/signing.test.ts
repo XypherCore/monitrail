@@ -3,6 +3,7 @@ import {
   INTERNAL_BODY_LIMIT_BYTES,
   INTERNAL_CLAIM_PATH,
   INTERNAL_INGEST_PATH,
+  INTERNAL_MAINTENANCE_PATH,
   INTERNAL_NONCE_HEADER,
   INTERNAL_SIGNATURE_HEADER,
   INTERNAL_TIMESTAMP_HEADER,
@@ -29,6 +30,9 @@ describe("portable internal request signing", () => {
   it("binds the path and generates a fresh default nonce", async () => {
     const claim = await signInternalRequest(secret, INTERNAL_CLAIM_PATH, "{}", { now, nonce });
     const ingest = await signInternalRequest(secret, INTERNAL_INGEST_PATH, "{}", { now, nonce });
+    const maintenance = await signInternalRequest(secret, INTERNAL_MAINTENANCE_PATH, "{}", { now, nonce });
+    expect(maintenance.get(INTERNAL_SIGNATURE_HEADER)).not.toBe(claim.get(INTERNAL_SIGNATURE_HEADER));
+    expect(maintenance.get(INTERNAL_SIGNATURE_HEADER)).not.toBe(ingest.get(INTERNAL_SIGNATURE_HEADER));
     expect(claim.get(INTERNAL_SIGNATURE_HEADER)).not.toBe(ingest.get(INTERNAL_SIGNATURE_HEADER));
     const first = await signInternalRequest(secret, INTERNAL_INGEST_PATH, "{}", { now });
     const second = await signInternalRequest(secret, INTERNAL_INGEST_PATH, "{}", { now });

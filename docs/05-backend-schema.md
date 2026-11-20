@@ -171,8 +171,20 @@ fire concurrent creates and assert the cap holds.
   revalidate DNS (public addresses only) for monitors in order of oldest
   `dns_checked_at` within a time budget, pausing offenders; log table sizes.
   Safe to run twice; a missed day is caught up the next day.
+  DNS work has a 45-second budget with at most six concurrent validations.
+  A DNS error or the guard's five-second timeout pauses the monitor as
+  blocked until its owner saves a URL that passes validation and resumes
+  it. Unfinished work at the batch deadline keeps its previous checkpoint.
+  Repeated runs skip DNS already validated during the current UTC day.
+  Expired claimed attempts become terminal before cleanup. Delete resolved
+  incidents one year after resolution and old monitor events while retaining
+  the last pause, resume or blocked event before the yearly boundary.
+  Expired database sessions are also removed.
 - `GET /api/health`: 200 if the heartbeat is under 180 s old and storage is
   under 90% of the plan limit, else 503. No details in the body.
+  The 500 MB budget means 500,000,000 bytes, measured with
+  `pg_database_size(current_database())`, including indexes. A missing or
+  future heartbeat and any failed measurement return 503.
 - `POST /api/telegram/webhook`: verifies the secret-token header, handles
   `/start <code>`, nothing else.
 

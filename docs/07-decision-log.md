@@ -81,7 +81,16 @@ first, then the code.
   refresh once per minute in a visible tab.
 - **Latency definitions**, bucket sizes and no-data rendering.
 - **Maintenance**: idempotent endpoint, defined caller, no rollups needed.
+  The owner approved a 45-second DNS budget with six concurrent validations,
+  pausing on DNS errors and per-host timeouts, and deferring unfinished
+  batch work. Yearly cleanup keeps open incidents, recently resolved
+  incidents, and the event establishing pause state at the retention
+  boundary. The daily invocation runs at 03:17 UTC.
 - **Storage**: budget and 90% health failure.
+- **Phase 9 framework security patch**: pin Next.js 16.4.6 after the build
+  and npm audit identified advisories affecting the previous 16.4.3 pin.
+  Official release notes and package compatibility were checked before
+  installation. [Patched release](https://github.com/vercel/next.js/releases/tag/v16.4.6).
 - **Hostname and blocklist semantics**, including redirect hops.
 - **Service capabilities** separated from the user DAL.
 - **Status-page cardinality, projection, precedence, slug lifecycle.**

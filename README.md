@@ -185,3 +185,29 @@ session. It makes no provider or monitored-target requests. Real provider
 consent must be tested separately by an account owner. The credential scanner
 privately compares configured values with Git-eligible files and browser assets.
 See the [Phase 3b verification log](docs/phase-3b-verification.md) for evidence and remaining checks.
+
+## Maintenance and health
+
+The Worker calls signed maintenance daily at 03:17 UTC. Maintenance removes
+expired data, validates monitor DNS, and logs table sizes and an 80% storage
+warning. Unsafe or failed DNS validation pauses the affected monitor.
+Save a URL that passes validation, then resume it.
+
+`GET /api/health` has an empty response and returns 503 when checker updates
+are at least three minutes old, storage reaches 450,000,000 bytes, or the
+measurement fails. Run the independent probe with `APP_URL` set to the
+deployed HTTPS origin.
+
+```sh
+node scripts/check-health.mjs
+node --test scripts/check-health.test.mjs
+```
+
+At deployment, set the GitHub repository variable `APP_URL`, merge the
+health workflow onto the default branch, and enable Actions failure
+notifications. Its schedule runs every 15 minutes. Scheduled jobs wait for
+`APP_URL` to be configured. Manual runs report missing configuration as a
+failure. GitHub can delay scheduled runs. Standard public-repository
+runners are free, while private-repository runs consume the plan's compute
+allowance. [GitHub scheduling](https://docs.github.com/en/actions/reference/workflows-and-actions/events-that-trigger-workflows#schedule),
+[GitHub Actions billing](https://docs.github.com/en/billing/concepts/product-billing/github-actions).

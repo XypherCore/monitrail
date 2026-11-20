@@ -1,6 +1,7 @@
 import { checkerUserAgent } from "../../shared/identity.ts";
 import { createWorkerGuard } from "../../shared/ssrf/index.ts";
 import type { WorkerCheckResult } from "../../shared/ssrf/worker.ts";
+import worker, { MAINTENANCE_CRON } from "../src/index.ts";
 import { runCheckTick } from "../src/tick.ts";
 
 const target = "https://public.example/";
@@ -175,6 +176,23 @@ export const runsSignedTickThroughNativeFetch = {
         metrics.accepted === 2 &&
         metrics.maxSlotLatenessMs === 12000,
       "Expected signed claim, one permitted target, and signed ingest.",
+    );
+  },
+};
+
+export const runsDailyMaintenanceThroughNativeFetch = {
+  async test() {
+    await worker.scheduled(
+      { cron: MAINTENANCE_CRON, scheduledTime: Date.now(), noRetry() {} },
+      {
+        APP_URL: appUrl,
+        INTERNAL_HMAC_SECRET: "synthetic-offline-worker-test-secret",
+        CHECK_TICKS: {
+          send() { throw new Error("Daily maintenance must not enqueue a check."); },
+          sendBatch() { throw new Error("Daily maintenance must not enqueue a check."); },
+          metrics() { throw new Error("Daily maintenance must not read check queue metrics."); },
+        },
+      },
     );
   },
 };
