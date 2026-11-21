@@ -2,6 +2,7 @@ import "server-only";
 import { readAuthConfig } from "../auth/config.ts";
 import { getAuthRuntime } from "../auth/runtime.ts";
 import { getRuntimeDatabase } from "../db/runtime.ts";
+import { reserveManagementWrite } from "../security/management-rate.ts";
 import { createAlertChannelAccess } from "./channel-access.ts";
 import { createChannelCipher } from "./channel-crypto.ts";
 import { isChannelId, isTelegramWebhookSecret } from "./channel-input.ts";
@@ -27,6 +28,7 @@ export const alertChannelHandlers = createAlertHandlers({
 		});
 		if (!session || !isChannelId(session.user.id)) return null;
 		const db = getRuntimeDatabase();
+		await reserveManagementWrite(db, session.user.id);
 		const guard = createRuntimeAlertGuard(db, appUrl);
 		return createAlertChannelAccess(db, session.user.id, {
 			cipher,

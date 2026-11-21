@@ -3,6 +3,7 @@ import { readAuthConfig } from "../auth/config.ts";
 import { getAuthRuntime } from "../auth/runtime.ts";
 import { getRuntimeDatabase } from "../db/runtime.ts";
 import { isMonitorId } from "../monitors/input.ts";
+import { reserveManagementWrite } from "../security/management-rate.ts";
 import { createStatusPageOwner } from "./owner.ts";
 import { createStatusPageHandlers } from "./owner-http.ts";
 import { invalidateStatusSlugs } from "./public-runtime.ts";
@@ -17,7 +18,9 @@ export const statusPageHandlers = createStatusPageHandlers({
 			query: { disableRefresh: true },
 		});
 		if (!session || !isMonitorId(session.user.id)) return null;
-		return createStatusPageOwner(getRuntimeDatabase(), session.user.id);
+		const db = getRuntimeDatabase();
+		await reserveManagementWrite(db, session.user.id);
+		return createStatusPageOwner(db, session.user.id);
 	},
 	invalidate: invalidateStatusSlugs,
 });

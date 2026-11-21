@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 import { createAccountDeletionHandler } from "./http.ts";
+import { ManagementRateError } from "../security/management-rate.ts";
 
 const origin = "https://app.example.invalid";
 
@@ -80,6 +81,17 @@ describe("authenticated account deletion", () => {
     expect(response.status).toBe(503);
     expect(await response.text()).not.toContain("private-fixture");
     expect(response.headers.get("set-cookie")).toBeNull();
+  });
+
+  it("reports the approved deletion limit with a Retry-After header and preserves the session", async () => {
+    const { handler, authenticate, deleteAccount } = setup();
+    authenticate.mockRejectedValue(new ManagementRateError(27));
+    const response = await handler(request());
+    expect(response.status).toBe(429);
+    expect(response.headers.get("retry-after")).toBe("27");
+    expect(response.headers.get("set-cookie")).toBeNull();
+    expect(deleteAccount).not.toHaveBeenCalled();
+    expect(await response.json()).toEqual({ error: { message: "You can try account deletion up to 3 times per hour. Try again after 27 seconds." } });
   });
 
   it("reports success when a concurrent deletion already removed the validated account", async () => {

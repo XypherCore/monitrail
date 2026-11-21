@@ -342,7 +342,8 @@ export function createDataAccess(
         const pages = await rows(tx, sql`SELECT slug FROM status_pages WHERE user_id=${userId}`);
         await rows(tx, sql`
           DELETE FROM rate_limits WHERE key IN (
-            ${`monitor-url:${userId}`},${`alert-test:user:${userId}`},${`telegram-link:${userId}`}
+            ${`monitor-url:${userId}`},${`alert-test:user:${userId}`},${`telegram-link:${userId}`},
+            ${`management-write:${userId}`},${`account-delete:${userId}`}
           ) OR key IN (
             SELECT 'alert-test:channel:' || id::text FROM alert_channels WHERE user_id=${userId}
           )

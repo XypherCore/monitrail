@@ -45,6 +45,9 @@ first, then the code.
 - **Exactly-once alerts**: impossible against third parties, so the design is
   an outbox with at-least-once delivery, `event_id` and backoff.
 - **Abuse limits**: numbers set, enforced atomically, invite-only signup.
+  Phase 10 adds the owner-approved shared budget of 60 authenticated
+  management writes per hour per user and a separate budget of three
+  account-deletion attempts per hour.
 - **Telegram**: one-time-code linking from the destination chat.
 - **Public cache**: tagged caching, 60 s maximum staleness, mutation-time
   invalidation, revocation tests that prime the cache first.

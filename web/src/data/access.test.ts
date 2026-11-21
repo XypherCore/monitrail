@@ -130,11 +130,11 @@ describe("ownership data-access layer against PostgreSQL migrations", () => {
     }
     const ownKeys = [
       `monitor-url:${ownerA}`, `alert-test:user:${ownerA}`, `telegram-link:${ownerA}`,
-      `alert-test:channel:${channelA}`,
+      `alert-test:channel:${channelA}`, `management-write:${ownerA}`, `account-delete:${ownerA}`,
     ];
     const foreignKeys = [
       `monitor-url:${ownerB}`, `alert-test:user:${ownerB}`, `telegram-link:${ownerB}`,
-      `alert-test:channel:${channelB}`,
+      `alert-test:channel:${channelB}`, `management-write:${ownerB}`, `account-delete:${ownerB}`,
     ];
     for (const key of [...ownKeys, ...foreignKeys, "nonce:system-fixture"]) {
       await client.query("INSERT INTO rate_limits(key,window_start,count) VALUES ($1,now(),1)", [key]);

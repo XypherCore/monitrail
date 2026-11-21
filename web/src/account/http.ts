@@ -3,6 +3,7 @@ import {
   AlertRequestError,
   readAlertJson,
 } from "../alerts/request-json.ts";
+import { ACCOUNT_DELETION_LIMIT, ManagementRateError } from "../security/management-rate.ts";
 
 export type AccountDeletionAccess = { deleteAccount(): Promise<boolean> };
 type Dependencies = {
@@ -44,6 +45,11 @@ export function createAccountDeletionHandler(dependencies: Dependencies) {
         },
       });
     } catch (error) {
+      if (error instanceof ManagementRateError) {
+        const response = failure(429, `You can try account deletion up to ${ACCOUNT_DELETION_LIMIT} times per hour. Try again after ${error.retryAfterSeconds} seconds.`);
+        response.headers.set("retry-after", String(error.retryAfterSeconds));
+        return response;
+      }
       return error instanceof AlertRequestError
         ? failure(error.status, "Invalid account deletion request.")
         : failure(503, "Account deletion is temporarily unavailable. Try again.");

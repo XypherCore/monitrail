@@ -1,4 +1,5 @@
 import { awaitSignal } from "../../../shared/ssrf/io.ts";
+import { MANAGEMENT_WRITE_LIMIT, ManagementRateError } from "../security/management-rate.ts";
 import {
   isMonitorId,
   type MonitorEditFields,
@@ -132,6 +133,11 @@ export function createMonitorHandlers(dependencies: Dependencies) {
       if (!access) return failure(401, "Sign in to manage monitors.");
       return await perform(access);
     } catch (error) {
+      if (error instanceof ManagementRateError) {
+        const response = failure(429, `You can make up to ${MANAGEMENT_WRITE_LIMIT} management changes per hour. Try again in ${error.retryAfterSeconds} seconds.`);
+        response.headers.set("retry-after", String(error.retryAfterSeconds));
+        return response;
+      }
       if (error instanceof RequestBodyError) return failure(error.status, error.message);
       try {
         const known = dependencies.mapError(error);

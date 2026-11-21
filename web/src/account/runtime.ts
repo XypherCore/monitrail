@@ -4,6 +4,7 @@ import { getAuthRuntime } from "../auth/runtime.ts";
 import { createDataAccess } from "../data/access.ts";
 import { getRuntimeDatabase } from "../db/runtime.ts";
 import { isMonitorId } from "../monitors/input.ts";
+import { reserveAccountDeletion } from "../security/management-rate.ts";
 import { invalidateStatusSlugs } from "../status-pages/public-runtime.ts";
 import { createAccountDeletionHandler } from "./http.ts";
 
@@ -16,6 +17,8 @@ export const deleteAccountHandler = createAccountDeletionHandler({
       query: { disableRefresh: true },
     });
     if (!session || !isMonitorId(session.user.id)) return null;
-    return createDataAccess(getRuntimeDatabase(), session.user.id, undefined, invalidateStatusSlugs);
+    const database = getRuntimeDatabase();
+    await reserveAccountDeletion(database, session.user.id);
+    return createDataAccess(database, session.user.id, undefined, invalidateStatusSlugs);
   },
 });

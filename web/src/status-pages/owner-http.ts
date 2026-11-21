@@ -5,6 +5,7 @@ import {
 	requireEmptyAlertBody as requireEmptyBody,
 } from "../alerts/request-json.ts";
 import { isMonitorId } from "../monitors/input.ts";
+import { MANAGEMENT_WRITE_LIMIT, ManagementRateError } from "../security/management-rate.ts";
 import type { StatusPageMutation } from "./contracts.ts";
 import {
 	MAX_STATUS_PAGES,
@@ -61,6 +62,11 @@ export function createStatusPageHandlers(deps: Dependencies) {
 				{ status: method === "POST" ? 201 : 200, headers },
 			);
 		} catch (error) {
+			if (error instanceof ManagementRateError) {
+				const response = failure(429, `You can make up to ${MANAGEMENT_WRITE_LIMIT} management changes per hour. Try again in ${error.retryAfterSeconds} seconds.`);
+				response.headers.set("retry-after", String(error.retryAfterSeconds));
+				return response;
+			}
 			if (error instanceof RequestError)
 				return failure(error.status, "Invalid status page request.");
 			if (!(error instanceof StatusPageOwnerError)) return unavailable();

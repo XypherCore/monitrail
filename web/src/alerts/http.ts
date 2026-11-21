@@ -1,4 +1,5 @@
 import { WebGuardError } from "../security/web-ssrf.ts";
+import { MANAGEMENT_WRITE_LIMIT, ManagementRateError } from "../security/management-rate.ts";
 import type { createAlertChannelAccess } from "./channel-access.ts";
 import { AlertAccessError, CHANNEL_LIMIT } from "./channel-store.ts";
 import {
@@ -66,6 +67,11 @@ export function createAlertHandlers(deps: Dependencies) {
 			if (!access) return failure(401, "Sign in to manage alert channels.");
 			return await action(access);
 		} catch (error) {
+			if (error instanceof ManagementRateError) {
+				const response = failure(429, `You can make up to ${MANAGEMENT_WRITE_LIMIT} management changes per hour. Try again in ${error.retryAfterSeconds} seconds.`);
+				response.headers.set("retry-after", String(error.retryAfterSeconds));
+				return response;
+			}
 			if (error instanceof AlertRequestError)
 				return failure(error.status, "Invalid channel request.");
 			if (error instanceof WebGuardError)

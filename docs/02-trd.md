@@ -246,6 +246,9 @@ signature, so a signature cannot be reused across endpoints.
 - Persist only allowlisted error categories, never raw exception text.
 - Security headers: strict CSP, HSTS, `X-Content-Type-Options`,
   `Referrer-Policy`, `frame-ancestors 'none'`.
+  HTML is rendered per request with a fresh nonce for scripts and style
+  elements and a no-store response. Recharts' style attributes remain
+  enabled. APIs and assets receive a restrictive baseline policy.
 
 ### Abuse controls and quotas (defaults, enforced atomically)
 | Limit | Value |
@@ -259,12 +262,22 @@ signature, so a signature cannot be reused across endpoints.
 | Test alerts | 5 per hour per user, 3 per hour per channel |
 | Telegram link codes | 5 per hour per user, 10 min expiry |
 | Minimum interval | 5 minutes |
+| Authenticated management writes | 60 per hour per user |
+| Account deletion attempts | 3 per hour per user, separate from management writes |
+| OAuth initiation | 3 attempts per 10 seconds per trusted ingress-IP bucket |
 Counts and inserts run in one transaction behind a per-user advisory lock,
 so concurrent requests cannot exceed a limit. Admission: `SIGNUP_MODE=invite`
 through the dogfood period; the global cap protects shared capacity after
 that. `blocked_hosts` is canonical-host matched (includes subdomains by
 default), checked at creation, in `claim`, and for every redirect hop in the
 Worker.
+Management writes share one budget across monitors, channel management,
+test alerts, Telegram link issuance and status pages. The more specific
+limits in the table also apply. Authenticated attempts consume the budget
+even when validation or the later mutation fails. Account deletion has its
+own budget. Responses include `Retry-After` when a budget is exhausted.
+The OAuth bucket uses the trusted hosting ingress address when available
+and a shared anonymous bucket elsewhere.
 
 ### Alert delivery
 - Down and up events create `alert_outbox` rows in the same transaction as
