@@ -31,7 +31,13 @@ const credentialNames = [
 
 async function configuredValues(): Promise<Set<string>> {
   const values = new Set<string>();
-  for (const file of localFiles) {
+  if (process.env.CI === "true") {
+    for (const name of credentialNames) {
+      const value = process.env[name];
+      if (value && value.length >= 12) values.add(value);
+    }
+  }
+  for (const file of process.env.CI === "true" ? [] : localFiles) {
     try {
       const env = parseEnv(await readFile(resolve(root, file), "utf8"));
       for (const name of credentialNames) {

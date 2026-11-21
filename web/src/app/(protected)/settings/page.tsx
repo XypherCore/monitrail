@@ -1,4 +1,5 @@
 import { requireUser } from "../../../auth/session";
+import { DeleteAccount } from "../../../components/delete-account";
 
 export default async function SettingsPage() {
 	const user = await requireUser("/settings");
@@ -19,10 +20,11 @@ export default async function SettingsPage() {
 					</div>
 					<div className="account-field">
 						<dt>Email</dt>
-						<dd>{user.email}</dd>
+						<dd>{user.email ?? "Not provided"}</dd>
 					</div>
 				</dl>
 			</section>
+			<DeleteAccount />
 		</>
 	);
 }

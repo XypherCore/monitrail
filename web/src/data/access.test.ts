@@ -108,6 +108,54 @@ describe("ownership data-access layer against PostgreSQL migrations", () => {
     expect(invalidate).toHaveBeenCalledTimes(1);
   });
 
+  it("deletes all owned account data and rate keys while preserving another owner", async () => {
+    await client.query(
+      "INSERT INTO accounts(provider,provider_account_id,user_id) VALUES ('github','fixture-a',$1),('google','fixture-b',$2)",
+      [ownerA, ownerB],
+    );
+    await client.query(
+      "INSERT INTO sessions(session_token,user_id,expires) VALUES ('fixture-a',$1,now()+interval '1 day'),('fixture-a-second',$1,now()+interval '1 day'),('fixture-b',$2,now()+interval '1 day')",
+      [ownerA, ownerB],
+    );
+    for (const [userId, monitorId] of [[ownerA, monitorA], [ownerB, monitorB]]) {
+      await client.query(
+        "INSERT INTO telegram_link_codes(code_hash,user_id,expires_at) VALUES ($1::text,$1::uuid,now()+interval '10 minutes')",
+        [userId],
+      );
+      await client.query(
+        "INSERT INTO check_attempts(attempt_id,monitor_id,config_rev,expected_status,expires_at) VALUES ($1,$1,1,'2xx',now()+interval '120 seconds')",
+        [monitorId],
+      );
+      await client.query("INSERT INTO monitor_events(monitor_id,kind) VALUES ($1,'created')", [monitorId]);
+    }
+    const ownKeys = [
+      `monitor-url:${ownerA}`, `alert-test:user:${ownerA}`, `telegram-link:${ownerA}`,
+      `alert-test:channel:${channelA}`,
+    ];
+    const foreignKeys = [
+      `monitor-url:${ownerB}`, `alert-test:user:${ownerB}`, `telegram-link:${ownerB}`,
+      `alert-test:channel:${channelB}`,
+    ];
+    for (const key of [...ownKeys, ...foreignKeys, "nonce:system-fixture"]) {
+      await client.query("INSERT INTO rate_limits(key,window_start,count) VALUES ($1,now(),1)", [key]);
+    }
+
+    expect(await createDataAccess(db, ownerA).deleteAccount()).toBe(true);
+    const remaining = await client.query("SELECT id FROM users");
+    expect(remaining.rows).toEqual([{ id: ownerB }]);
+    for (const table of ["accounts", "sessions", "monitors", "alert_channels", "telegram_link_codes", "incidents", "alert_outbox", "status_pages", "monitor_alert_channels", "status_page_monitors"]) {
+      expect((await client.query(`SELECT user_id FROM ${table}`)).rows)
+        .toEqual([{ user_id: ownerB }]);
+    }
+    for (const table of ["checks", "check_attempts", "monitor_events"]) {
+      expect((await client.query(`SELECT monitor_id FROM ${table}`)).rows)
+        .toEqual([{ monitor_id: monitorB }]);
+    }
+    expect((await client.query("SELECT key FROM rate_limits ORDER BY key")).rows)
+      .toEqual([...foreignKeys, "nonce:system-fixture"].sort().map((key) => ({ key })));
+    expect((await client.query("SELECT slug FROM slug_tombstones")).rows).toEqual([{ slug: "owner-a" }]);
+  });
+
   it("filters all lists and direct object reads by the authenticated owner", async () => {
     const own = createDataAccess(db, ownerA, () => clock);
     expect((await own.listMonitors()).map((row) => row.id)).toEqual([monitorA]);

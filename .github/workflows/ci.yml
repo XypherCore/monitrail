@@ -1,0 +1,57 @@
+name: Build and security
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    env:
+      NEXT_TELEMETRY_DISABLED: "1"
+      WRANGLER_SEND_METRICS: "false"
+      WRANGLER_LOG_PATH: ${{ runner.temp }}/wrangler.log
+      QA_REPORT_DIR: ${{ runner.temp }}/monitrail-qa
+    steps:
+      - name: Check out complete history
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Set up Node
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: "24.12.0"
+          package-manager-cache: false
+      - name: Install pinned dependencies
+        run: npm ci --ignore-scripts --no-fund
+      - name: Prepare synthetic configuration
+        run: node scripts/ci-env.mjs
+      - name: Check lint
+        run: npm run lint
+      - name: Build both runtimes
+        run: npm run build
+      - name: Check types
+        run: npm run typecheck
+      - name: Run application and security suites
+        run: npm run test --workspaces -- --maxWorkers=2
+      - name: Run independent probe tests
+        run: node --test scripts/check-health.test.mjs
+      - name: Verify native Worker transport
+        run: npm run test:runtime --workspace checker
+      - name: Scan configured values and browser assets
+        run: npm run auth:verify-secrets --workspace web
+      - name: Scan source and all history
+        run: npm run security:scan
+      - name: Check production dependency advisories
+        run: npm audit --omit=dev
+      - name: Install Chromium for browser checks
+        run: ./node_modules/.bin/playwright install --with-deps chromium
+      - name: Verify production journeys and storage budget
+        run: npm run test:production

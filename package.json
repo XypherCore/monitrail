@@ -9,7 +9,9 @@
     "build": "npm run build --workspaces",
     "lint": "npm run lint --workspaces && biome lint shared --error-on-warnings",
     "typecheck": "npm run typecheck --workspaces",
-    "test": "npm run test --workspaces"
+    "test": "npm run test --workspaces && node --test scripts/check-health.test.mjs",
+    "test:production": "node web/scripts/qa/verify.mjs",
+    "security:scan": "node scripts/scan-secrets.mjs"
   },
   "devDependencies": {
     "@biomejs/biome": "2.6.4",

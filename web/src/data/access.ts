@@ -340,6 +340,13 @@ export function createDataAccess(
     async deleteAccount(): Promise<boolean> {
       const { deleted, slugs } = await associationWrite(async (tx) => {
         const pages = await rows(tx, sql`SELECT slug FROM status_pages WHERE user_id=${userId}`);
+        await rows(tx, sql`
+          DELETE FROM rate_limits WHERE key IN (
+            ${`monitor-url:${userId}`},${`alert-test:user:${userId}`},${`telegram-link:${userId}`}
+          ) OR key IN (
+            SELECT 'alert-test:channel:' || id::text FROM alert_channels WHERE user_id=${userId}
+          )
+        `);
         const users = await rows(tx, sql`DELETE FROM users WHERE id=${userId} RETURNING id`);
         return { deleted: users.length === 1, slugs: pages.map((page) => String(page.slug)) };
       });

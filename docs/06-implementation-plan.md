@@ -102,7 +102,7 @@ Status legend: [ ] open, [~] in progress, [x] done
   external check report it; monitors that start resolving to private
   addresses are paused.
   See the [Phase 9 verification log](phase-9-verification.md).
-- [ ] **Phase 10: Hardening and QA.** Security headers and CSP, per-flow
+- [~] **Phase 10: Hardening and QA.** Security headers and CSP, per-flow
   rate limits, `/bot` page, account deletion, accessibility pass,
   Lighthouse check, CI (lint, typecheck, tests, secret scan), table-size
   measurement against the storage budget.

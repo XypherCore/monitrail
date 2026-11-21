@@ -1,7 +1,12 @@
 import Link from "next/link";
 import { identity } from "../../../shared/identity";
 
-export default function Home() {
+export default async function Home({
+	searchParams,
+}: {
+	searchParams: Promise<{ account?: string | string[] }>;
+}) {
+	const deleted = (await searchParams).account === "deleted";
 	return (
 		<div className="public-page">
 			<a className="skip-link" href="#main-content">
@@ -17,6 +22,7 @@ export default function Home() {
 			</header>
 			<main className="landing-main" id="main-content">
 				<div className="landing-copy">
+					{deleted && <p role="status">Your account and its data have been deleted.</p>}
 					<p className="eyebrow">A home for your site status</p>
 					<h1>Website uptime and performance monitoring.</h1>
 					<p className="lede">
@@ -47,7 +53,9 @@ export default function Home() {
 					</p>
 				</section>
 			</main>
-			<footer className="public-footer">{identity.footerText}</footer>
+			<footer className="public-footer">
+				{identity.footerText} · <Link href="/bot">Checker and abuse contact</Link>
+			</footer>
 		</div>
 	);
 }
