@@ -14,7 +14,7 @@ export default function BotPage() {
 		<div className="public-page">
 			<a className="skip-link" href="#main-content">Skip to content</a>
 			<header className="public-header">
-				<Link className="wordmark" href="/" aria-label={`${identity.brandName} home`}>
+				<Link className="wordmark" href="/">
 					<span className="brand-mark" aria-hidden="true">{identity.monogram}</span>
 					{identity.brandName}
 				</Link>

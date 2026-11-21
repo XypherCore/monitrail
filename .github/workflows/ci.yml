@@ -55,3 +55,18 @@ jobs:
         run: ./node_modules/.bin/playwright install --with-deps chromium
       - name: Verify production journeys and storage budget
         run: npm run test:production
+      - name: Show safe QA diagnostics
+        if: failure()
+        run: |
+          node --input-type=module <<'JS'
+          import { readFile } from 'node:fs/promises';
+          import { join } from 'node:path';
+          for (const name of ['failure.json', 'browser.json', 'lighthouse.json', 'storage.json']) {
+            try {
+              const report = await readFile(join(process.env.QA_REPORT_DIR, name), 'utf8');
+              console.log(name, report);
+            } catch {
+              // The failed step may precede report generation.
+            }
+          }
+          JS

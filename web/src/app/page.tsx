@@ -13,7 +13,7 @@ export default async function Home({
 				Skip to content
 			</a>
 			<header className="public-header">
-				<Link className="wordmark" href="/" aria-label={`${identity.brandName} home`}>
+				<Link className="wordmark" href="/">
 					<span className="brand-mark" aria-hidden="true">
 						{identity.monogram}
 					</span>

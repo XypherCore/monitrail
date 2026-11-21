@@ -212,3 +212,38 @@ failure. GitHub can delay scheduled runs. Standard public-repository
 runners are free, while private-repository runs consume the plan's compute
 allowance. [GitHub scheduling](https://docs.github.com/en/actions/reference/workflows-and-actions/events-that-trigger-workflows#schedule),
 [GitHub Actions billing](https://docs.github.com/en/billing/concepts/product-billing/github-actions).
+
+## Security and production verification
+
+```sh
+npm run lint
+npm run build
+npm run typecheck
+npm test
+npm run security:scan
+npm run test:production
+```
+
+Production verification uses an isolated local PostgreSQL database and
+synthetic accounts. It exercises keyboard journeys, ownership checks,
+public cache revocation, account deletion, Lighthouse audits and the
+storage benchmark. It requires OpenSSL, PostgreSQL binaries under
+`/usr/lib/postgresql`, and Chromium. It uses a system Chromium when
+available, or the browser installed by the pinned Playwright package.
+Reports go to a temporary directory or `QA_REPORT_DIR`.
+
+The browser test intercepts the OAuth authorization page and represents
+Telegram's Start action through its authenticated incoming webhook.
+Live provider consent is verified by the account owner.
+
+The CI workflow runs these checks on main and pull requests with synthetic
+configuration. Source and history scanning uses checksum-verified Gitleaks
+8.30.1. Lighthouse 13.6.0 is a pinned development dependency.
+
+HTML uses a fresh CSP nonce and no-store caching. Scripts and style
+elements require the nonce. Style attributes remain enabled for Recharts.
+Management writes share the approved 60-per-hour owner budget. Account
+deletion has a separate three-attempt budget.
+
+Set `ABUSE_CONTACT_EMAIL` to an alias address you own before deployment.
+The production `/bot` page requires a valid contact address.

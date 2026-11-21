@@ -159,7 +159,6 @@ export function StatusView({
 				<a
 					className="wordmark"
 					href="/"
-					aria-label={`${identity.brandName} home`}
 				>
 					<span className="brand-mark" aria-hidden="true">
 						{identity.monogram}

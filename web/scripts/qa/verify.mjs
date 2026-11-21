@@ -72,6 +72,9 @@ async function run(command, args, options = {}) {
 
 try {
 	await mkdir(reportDirectory, { recursive: true });
+	for (const name of ["failure.json", "browser.json", "lighthouse.json", "storage.json"]) {
+		await rm(join(reportDirectory, name), { force: true });
+	}
 	const versions = (await readdir("/usr/lib/postgresql"))
 		.filter((value) => /^\d+$/.test(value))
 		.sort((a, b) => Number(b) - Number(a));
@@ -205,6 +208,7 @@ try {
 		onnotice: () => {},
 		ssl: {
 			rejectUnauthorized: true,
+			servername: "monitrail-qa.pooler.supabase.com",
 			ca: await readFile(join(lab, "ca.crt"), "utf8"),
 		},
 	});

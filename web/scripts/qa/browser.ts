@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import { randomUUID } from "node:crypto";
+import { existsSync } from "node:fs";
 import { mkdir, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { chromium, expect, type Locator, type Page } from "@playwright/test";
@@ -53,10 +54,7 @@ async function selectIndex(page: Page, target: Locator, index: number) {
 }
 
 async function refresh(page: Page) {
-  await Promise.all([
-    page.waitForEvent("domcontentloaded"),
-    page.keyboard.press("Control+r"),
-  ]);
+  await page.reload({ waitUntil: "domcontentloaded" });
 }
 
 async function assertViewport(page: Page) {
@@ -109,7 +107,9 @@ export async function verifyBrowser({ origin, db, reportDirectory, audit }: Opti
   let pageId = "";
   let telegramCode = "";
   let providerNavigation = 0;
-  const browser = await chromium.launch({ executablePath: process.env.CHROME_PATH ?? "/usr/bin/chromium", headless: true });
+  const executablePath = process.env.CHROME_PATH ??
+    (existsSync("/usr/bin/chromium") ? "/usr/bin/chromium" : chromium.executablePath());
+  const browser = await chromium.launch({ executablePath, headless: true });
   try {
     await db.begin(async (sql) => {
       await sql`INSERT INTO users(id,name,email) VALUES
