@@ -1,7 +1,8 @@
 # Monitrail
 
-Website uptime and performance monitor. The source will be released as open
-source at deployment. Hosted signups remain invite-only through dogfood.
+A lightweight uptime and performance monitoring platform for websites and web services. Monitor availability, track response times, detect incidents, and receive alerts when services go down or recover.
+
+The source will be released as open source at deployment. Hosted signups remain invite-only through dogfood.
 
 Read [AGENTS.md](AGENTS.md), then docs 01–07 in order before contributing.
 The [implementation plan](docs/06-implementation-plan.md) tracks current
