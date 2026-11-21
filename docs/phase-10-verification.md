@@ -50,13 +50,19 @@ release remains in Phase 11.
 | Lighthouse | Seven production routes scored 100 for accessibility and best practices. Performance scores ranged from 87 on monitor detail to 99. No performance threshold was added. |
 | Secret and dependency checks | Configured credentials were absent from Git-eligible source, browser assets, the index and reachable history. Redacted source/history scans passed. Production dependency audit reported zero vulnerabilities. |
 | Storage | The isolated native PostgreSQL fixture measured 139,703,999 bytes including indexes, 27.94% of the 500,000,000-byte plan allowance and below the required 60%. |
-| CI on main | Pending the first push and a successful run for the integrated main commit. Phase 10 remains open until this is verified. |
+| CI on main | [Build and security run 44915006230](https://github.com/XypherCore/monitrail/actions/runs/44915006230) passed for main commit `60750dcafc6e12934f95b49f914c5798e5294bd7`, including the production browser and storage verifier. |
 
 Lighthouse performance scores were 99 for `/`, 99 for `/bot`, 96 for
 `/dashboard`, 99 for `/channels`, 99 for `/status-pages`, 97 for `/settings`
 and 87 for monitor detail. Remaining reports include framework/chart
 JavaScript and rendering costs. The no-store policy prevents back/forward
 cache reuse.
+
+The first CI attempt was rejected before any job started because the
+workflow referenced the runner context in job-level environment settings.
+The corrected workflow initializes those paths in its first step using
+RUNNER_TEMP and GITHUB_ENV. The successful run above verified the fix.
+[GitHub context availability](https://docs.github.com/en/actions/reference/workflows-and-actions/contexts).
 
 ## Storage model
 

@@ -102,13 +102,14 @@ Status legend: [ ] open, [~] in progress, [x] done
   external check report it; monitors that start resolving to private
   addresses are paused.
   See the [Phase 9 verification log](phase-9-verification.md).
-- [~] **Phase 10: Hardening and QA.** Security headers and CSP, per-flow
+- [x] **Phase 10: Hardening and QA.** Security headers and CSP, per-flow
   rate limits, `/bot` page, account deletion, accessibility pass,
   Lighthouse check, CI (lint, typecheck, tests, secret scan), table-size
   measurement against the storage budget.
   Done when: CI is green on main; every security suite passes; a
   keyboard-only run through every journey in doc 03 works; no console
   errors; measured storage is under 60% of the plan limit at the cap.
+  See the [Phase 10 verification log](phase-10-verification.md).
 
 ## Proof milestone
 - [ ] **Phase 11: Deploy and dogfood.** Production environment, owner
