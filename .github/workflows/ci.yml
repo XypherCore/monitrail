@@ -16,9 +16,10 @@ jobs:
     env:
       NEXT_TELEMETRY_DISABLED: "1"
       WRANGLER_SEND_METRICS: "false"
-      WRANGLER_LOG_PATH: ${{ runner.temp }}/wrangler.log
-      QA_REPORT_DIR: ${{ runner.temp }}/monitrail-qa
     steps:
+      - name: Prepare verification paths
+        run: |
+          printf 'WRANGLER_LOG_PATH=%s/wrangler.log\nQA_REPORT_DIR=%s/monitrail-qa\n' "$RUNNER_TEMP" "$RUNNER_TEMP" >> "$GITHUB_ENV"
       - name: Check out complete history
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
