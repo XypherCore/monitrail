@@ -112,15 +112,17 @@ Status legend: [ ] open, [~] in progress, [x] done
   See the [Phase 10 verification log](phase-10-verification.md).
 
 ## Proof milestone
-- [ ] **Phase 11: Deploy and dogfood.** Production environment, owner
+- [~] **Phase 11: Deploy and dogfood.** Production environment, owner
   decisions on hosting, database and open-source license recorded, public
   source release at deployment, invite-only signups. Monitor
-  Jumeirah Fashion, the Aelvon portfolio and Monitrail itself for 14
+  the Aelvon portfolio and Monitrail itself for 14
   consecutive days.
   Done when: zero false incidents (each incident reviewed by hand); missed
   checks under 1% using the definition in doc 01; a failed day restarts the
   14-day count after the fix; a short case study is written for the
   portfolio.
+  See the [Phase 11 verification log](phase-11-verification.md) and
+  [deployment and proof runbook](phase-11-runbook.md).
 
 ## Definition of done for the project
 Every core feature in doc 01 works end to end, the security suites pass in

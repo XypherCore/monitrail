@@ -1,0 +1,186 @@
+# Phase 11 deployment and proof runbook
+
+Phase 11 deploys the reviewed application, releases its source and gathers
+14 consecutive days of real operating evidence. Deployment alone does not
+complete the phase. The owner approved the launch choices and proof rules
+in docs 01 and 07 on 2026-11-22.
+
+## Production configuration
+
+Use Vercel Hobby for the personal, non-commercial, unmonetized invite-only
+dogfood, Cloudflare Free and a fresh Supabase Free project with its Data
+API disabled. The canonical origin is `https://monitrail.duckdns.org`.
+The source license is MIT. Reconsider hosting terms before public signups.
+
+The Vercel project uses `web` as its root, Node 24 and the pinned root
+lockfile. Keep shared source outside that root included. `web/vercel.json`
+uses the workspace build and a lockfile installation without package
+lifecycle scripts. Deployment logs and source remain private. Root
+`.vercelignore` excludes local credentials, operator state and build output.
+
+Keep the production connection strings in ignored
+`web/.env.production.local`. DATABASE_URL initially uses the transaction
+pooler. MIGRATION_DATABASE_URL uses the session pooler or direct endpoint.
+Run the fresh-project command once from the repository root:
+
+```sh
+npm run db:prepare-production --workspace web
+```
+
+This applies the committed migrations and creates the restricted
+`monitrail_app` role without fixtures. It replaces only the production
+runtime connection with that role. It refuses existing application data,
+foreign tables and altered migration history. A confirmed, already
+migrated empty target requires the explicit `--resume-after-migration`
+option when invoking the underlying script from `web`. Do not use the
+development fixture verification command on production.
+
+Preserve a `.pending` recovery file if a role commit succeeds but its local
+file rename fails. The helper never rotates an existing role's credential.
+Keep the project isolated from other writers during bootstrap.
+
+Configure the owned public abuse alias and OAuth applications. GitHub's
+callback is `/api/auth/callback/github`; Google's is
+`/api/auth/callback/google` on the canonical origin. The configuration
+command can explicitly reuse only the four OAuth application credentials
+from development. It generates separate production session, signing and
+encryption keys. Existing production keys are preserved on retry.
+
+```sh
+npm run deploy:configure-production --workspace web -- \
+  --origin https://monitrail.duckdns.org \
+  --abuse-contact '<owned-public-alias>' \
+  --reuse-oauth-apps --upload
+```
+
+Use `--prepare-only` instead of `--upload` to prepare locally. Provide
+separate production OAuth settings in the production file and omit
+`--reuse-oauth-apps` when using separate provider applications. Never pass
+secrets as command arguments. Production Telegram linking requires
+TELEGRAM_BOT_TOKEN and TELEGRAM_BOT_USERNAME; the command generates a fresh
+webhook secret when these are supplied together. Register the bot's
+authenticated HTTPS webhook after deployment.
+
+The command uploads only allowlisted runtime settings, as production-only
+Vercel secret variables. It excludes the migration credential and local CA
+paths. It refuses stale production variables absent from the desired
+configuration and incomplete paginated metadata. Remove stale settings
+deliberately before retrying. A provider CA file can be validated and sent
+as DATABASE_CA_PEM to the host. The local production file retains its file
+setting. TLS verification is always enabled.
+
+The checker's APP_URL is committed in `checker/wrangler.jsonc`. Create
+`monitrail-check-ticks`, supply the same INTERNAL_HMAC_SECRET to the Worker,
+and deploy its private Queue consumer and both schedules. It has no
+database credential, public Worker endpoint or preview URL. Verify minute
+ticks and measure the daily maintenance invocation's CPU on the Free plan.
+
+Set the GitHub repository variable APP_URL and run the health workflow
+manually. The owner must enable failure notifications. Register production
+provider callbacks, verify both sign-ins and test real alert delivery.
+Verify the hosted runtime's TLS connection, response headers, ownership
+checks and public-cache revocation. Only after deployment checks and
+source/history scans pass, make the MIT repository public.
+
+## Verified host-block requests
+
+Verify domain control by the documented domain reply or token file before
+using the administrator command. From `web`, with the administrative
+environment loaded locally:
+
+```sh
+node scripts/admin/block-host.ts add example.com --dry-run
+node scripts/admin/block-host.ts add example.com --apply --confirm-domain-control
+node scripts/admin/block-host.ts remove example.com --apply --confirm-domain-control
+```
+
+Subdomains are included by default. Use `--exact-host` only for an exact
+host block. The command does not contact the supplied host. Claim and
+maintenance apply the blocked lifecycle. Removing an entry does not resume
+monitors automatically.
+
+## Private evidence collection
+
+Create only the two approved dogfood monitors: the Aelvon portfolio and
+Monitrail itself, at five-minute intervals. Record their IDs, revisions and
+a common UTC proof start after deployment acceptance. Keep their
+configuration unchanged. The owner excluded the previously proposed
+client site. No checks against that site form part of this proof.
+
+Keep evidence in a private durable directory outside the checkout, with
+owner-only directory permissions. Do not use temporary storage as the sole
+14-day record. The exporter and scorer refuse source-tree output, symlinks
+and overwrites and create files with mode 0600.
+
+Capture overlapping evidence at least twice daily, before the one-day
+attempt cleanup can remove receipt timestamps. Use a new filename for
+every capture. From `web`, with the production administration environment
+loaded locally:
+
+```sh
+node scripts/ops/export-dogfood.ts --confirm-export-private-evidence \
+  --monitors '<first-uuid>,<second-uuid>' \
+  --from '<UTC-window-start>' --to '<UTC-window-end>' \
+  --output /private/monitrail-proof/new-snapshot.json
+```
+
+The exporter is read-only. It exports selected IDs, revisions, interval,
+pause state, lifecycle events, incidents and allowlisted observations. It
+excludes names, URLs, account information, channels and credentials. The
+server acceptance timestamp comes from successful attempts, not the
+Worker's clock. If a receipt has already expired, the export marks it
+missing. Earlier overlapping exports can supply retained evidence.
+
+Prepare a private JSON manifest with `version: 1`, `startAt`, exactly two
+`monitors` entries containing `id`, `configRev` and `intervalSeconds: 300`.
+An optional `configChanges` journal records `{id, monitorId, at}`. Record
+every configuration edit there, including an edit later reverted between
+snapshots. Historical interval-only edits are not reconstructible from
+the application schema. Do not assume unchanged settings from one final
+snapshot alone.
+
+Maintain a private reviews JSON file with `version: 1` and `reviews`
+containing `{incidentId, verdict}` entries. Verdicts are `real`, `false`
+or `unresolved`. Review every overlapping incident against independent
+site evidence. Keep investigation notes private. An unreviewed incident
+cannot establish zero false incidents.
+
+```sh
+node web/scripts/ops/score-dogfood.ts \
+  --manifest /private/monitrail-proof/manifest.json \
+  --evidence /private/monitrail-proof/first.json,/private/monitrail-proof/second.json \
+  --reviews /private/monitrail-proof/reviews.json \
+  --as-of '<current-UTC-instant>' \
+  --output /private/monitrail-proof/new-report.json
+```
+
+The scorer uses fixed five-minute slots from the proof start. Each accepted
+result can fill one slot, assigned to the earliest eligible unfilled slot.
+The slot includes a 60-second grace period. A received failure is still a
+recorded check. Paused-slot intersections are excluded. Each mature
+24-hour day requires strictly less than 1% missed slots per monitor and
+across the fleet, using integer comparisons. A day with no active slots
+cannot pass. Configuration changes require a restart.
+
+Evidence query windows are half-open. For the final slot's inclusive
+grace cutoff, the final export and assessment must extend beyond
+`proof start + 14 days + 60 seconds`. The extra instant closes the evidence
+window and adds no scheduling grace. A missing capture or receipt produces
+an incomplete result. A failed day restarts the 14-day count after the fix.
+The evaluator cannot create elapsed operating time from fixture tests.
+
+Exit status is 0 for passed, 2 for incomplete, and 1 for failed, restart
+required or invalid input. Keep private snapshots and reports backed up.
+The current scheduler uses acceptance-relative next checks; the approved
+fixed-slot proof may reveal cadence failures. Do not change scheduling or
+relax the measurement to hide them.
+
+## Completion evidence
+
+Record three anonymous human trials as A, B and C, with start and first
+healthy-result timestamps and elapsed seconds. Each must be under two
+minutes. Automated browser fixtures do not substitute for these trials.
+
+After 14 real clean days and all incident reviews, write the short case
+study using measured results, the deployed revision and the exact proof
+window. Do not mark Phase 11 complete before this evidence exists.

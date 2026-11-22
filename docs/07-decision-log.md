@@ -110,6 +110,18 @@ first, then the code.
 - **Schedule**: build and proof are separate milestones; only the owner
   changes scope; missed-check metric is defined.
 - **Privacy scope**: applies to the maintainer, not end-user data.
+- **Phase 11 launch**: the owner approved Vercel Hobby for personal,
+  non-commercial, unmonetized, invite-only dogfood, Cloudflare Free, a fresh
+  Supabase Free project, the existing MIT license and
+  `monitrail.duckdns.org`. Source release follows verified deployment.
+  The owner excluded the previously proposed client site. Dogfood covers
+  the Aelvon portfolio and Monitrail itself.
+- **Proof rules**: fixed five-minute slots from each monitor's proof start,
+  server acceptance timestamps, one result per slot and 60 seconds' grace.
+  Each 24-hour proof day requires less than 1% missed slots per monitor and
+  across the fleet. Slots intersecting a pause are excluded. Configuration
+  changes restart the run. The human first-monitor timer stops at the
+  first healthy result. These measurement rules do not change scheduling.
 
 ## Modified rather than adopted as written
 - Rollups: removed entirely for v1 (30-day raw retention covers every window),
@@ -119,7 +131,6 @@ first, then the code.
   controls.
 
 ## Remaining owner decisions
-1. Database: Supabase Free (default) or Neon Launch (about $19/month at 0.25
-   CU always-on, verify).
-2. Hosting plan and commercial status (doc 02, "Hosting terms").
-3. Open-source license and domain (see doc 01).
+1. Hosting and commercial status must be reconsidered before opening public
+   signups (doc 02, "Hosting terms"). The launch choices above cover the
+   personal, invite-only dogfood period.

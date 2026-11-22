@@ -83,8 +83,8 @@ user-configurable method or timeout.
 ## Success metrics (each with a definition)
 - **Time to first monitor**: a new user creates a working monitor in under
   2 minutes (measured by hand with 3 test users).
-- **Dogfood**: Monitrail monitors Jumeirah Fashion, the Aelvon portfolio and
-  itself for 14 consecutive days with zero false incidents (every incident
+- **Dogfood**: Monitrail monitors the Aelvon portfolio and itself for 14
+  consecutive days with zero false incidents (every incident
   reviewed by hand).
 - **Missed checks** under 1%: a missed check is an active 5-minute slot with
   no recorded result within the interval plus 60 s. Active time excludes
@@ -106,15 +106,31 @@ source when the app is deployed in Phase 11. The hosted service remains
 invite-only through dogfood. The owner selects the open-source license
 before making the repository public.
 
-## Open decisions (owner only; agents must not invent answers)
+## Identity and remaining owner decisions
 1. Brand owner: XypherCore (parent organisation). Maintainer identity stays
    an alias for now (see doc 02) and may later change to the owner's real
    name. All identity strings (brand name, maintainer name, abuse contact,
    footer text) live in ONE config file so that change is a one-file edit.
    Never hard-code identity strings elsewhere.
-2. Open-source license. Choose before the Phase 11 source release.
-3. Domain. Default: free subdomain of the host.
-4. Hosting plan and commercial status (see doc 02, "Hosting terms"). Default
-   for the build and dogfood: personal project, invite-only, no monetization;
-   decide before opening public signups.
-5. Database: Supabase free Postgres (default) or Neon Launch (pay-as-you-go).
+2. Hosting plan and commercial status must be reconsidered before opening
+   public signups (see doc 02, "Hosting terms"). The Phase 11 choices below
+   apply to the personal, invite-only dogfood period.
+
+## Phase 11 owner decisions
+
+The owner approved Vercel Hobby for personal, non-commercial,
+unmonetized, invite-only dogfood, Cloudflare Free, a fresh Supabase Free
+project, the existing MIT license and `monitrail.duckdns.org`. Source is
+released when deployment passes its checks. Public signups remain closed.
+
+The dogfood targets are `https://aelvon.vercel.app` and Monitrail's canonical
+origin. The owner excluded the previously proposed client site from scope.
+Three anonymous human first-monitor trials remain required. Their timer
+ends when the first healthy result appears.
+
+Proof uses fixed five-minute slots anchored to each monitor's proof start,
+server acceptance timestamps, one result per slot and 60 seconds' grace.
+Less than 1% of slots may be missed per monitor and across the fleet in
+each 24-hour proof day. Slots intersecting paused time are excluded.
+Configuration changes restart the proof run. A failed day restarts the
+14-day count after the fix. This does not alter the scheduler's timing.
