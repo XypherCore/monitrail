@@ -352,6 +352,9 @@ Database administration uses MIGRATION_DATABASE_URL with a direct or
 session-pooler connection. Keep it out of the hosted web runtime. The app
 uses DATABASE_URL with the transaction pooler. DATABASE_CA_FILE optionally
 points to the provider CA when it is needed for TLS verification.
+For hosts without that local file, DATABASE_CA_PEM supplies one provider
+CA certificate through the environment. Configure one explicit CA source
+at a time. Certificate and hostname verification stay enabled.
 
 ## Folder structure
 ```

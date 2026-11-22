@@ -25,18 +25,39 @@ export function readPostgresUrl(value: string | undefined): string {
   }
 }
 
-export function postgresOptions(caFile = process.env.DATABASE_CA_FILE) {
-  let ca: string[] | undefined;
+/** Normalize one bounded public CA without consulting runtime configuration. */
+export function validateDatabaseCaPem(caPem: string): string {
   try {
-    const certificate = new X509Certificate(readFileSync(caFile ?? ".certs/supabase-ca.crt"));
+    if (Buffer.byteLength(caPem, "utf8") > 65_536 ||
+      !/^\s*-----BEGIN CERTIFICATE-----\r?\n[A-Za-z0-9+/=\r\n]+-----END CERTIFICATE-----\s*$/.test(caPem)) throw new Error();
+    const certificate = new X509Certificate(caPem);
     if (!certificate.ca) throw new Error();
-    ca = [...getCACertificates(), certificate.toString()];
-  } catch (error) {
-    if (
-      caFile !== undefined ||
-      !(error instanceof Error && "code" in error && error.code === "ENOENT")
-    ) {
-      throw new Error("Configure a valid Supabase CA certificate file.");
+    return certificate.toString();
+  } catch {
+    throw new Error("Configure a valid Supabase CA certificate PEM.");
+  }
+}
+
+export function postgresOptions(
+  caFile = process.env.DATABASE_CA_FILE,
+  caPem = process.env.DATABASE_CA_PEM,
+) {
+  let ca: string[] | undefined;
+  if (caPem !== undefined) {
+    if (caFile !== undefined) throw new Error("Configure only one Supabase CA certificate source.");
+    ca = [...getCACertificates(), validateDatabaseCaPem(caPem)];
+  } else {
+    try {
+      const certificate = new X509Certificate(readFileSync(caFile ?? ".certs/supabase-ca.crt"));
+      if (!certificate.ca) throw new Error();
+      ca = [...getCACertificates(), certificate.toString()];
+    } catch (error) {
+      if (
+        caFile !== undefined ||
+        !(error instanceof Error && "code" in error && error.code === "ENOENT")
+      ) {
+        throw new Error("Configure a valid Supabase CA certificate file.");
+      }
     }
   }
   return {

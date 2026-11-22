@@ -9,6 +9,9 @@ const localFiles = [
   "web/.env.local",
   "web/.env.phase3b.local",
   "web/.env.phase3b.local.pending",
+  "web/.env.production.local",
+  "web/.env.production.local.pending",
+  "web/.env.production.local.config-pending",
   "web/.env.invite.local",
   "checker/.dev.vars",
 ];

@@ -4,7 +4,7 @@ import { parseEnv } from "node:util";
 import type postgres from "postgres";
 import { postgresProject, readPostgresUrl } from "../../src/db/postgres-config.ts";
 
-const appTables = [
+export const applicationTables = [
   "users",
   "accounts",
   "sessions",
@@ -40,7 +40,7 @@ function scramVerifier(password: string): string {
 async function verifyGrants(query: postgres.Sql | postgres.TransactionSql) {
   const [permissions] = await query`WITH app_tables AS (
     SELECT 'public.' || name AS name
-    FROM jsonb_array_elements_text(${JSON.stringify(appTables)}::jsonb) AS t(name)
+    FROM jsonb_array_elements_text(${JSON.stringify(applicationTables)}::jsonb) AS t(name)
   ), api_roles(name) AS (VALUES ('anon'), ('authenticated'), ('service_role'))
   SELECT
     has_schema_privilege('monitrail_app','public','USAGE') AND
@@ -61,11 +61,15 @@ async function verifyGrants(query: postgres.Sql | postgres.TransactionSql) {
 }
 
 /** Administrative capability for the approved fresh project only. */
-export async function configureApplicationRole(client: ReturnType<typeof postgres>) {
+export async function configureApplicationRole(
+  client: ReturnType<typeof postgres>,
+  environmentFile = new URL("../../.env.phase3b.local", import.meta.url),
+) {
   const runtime = new URL(readPostgresUrl(process.env.DATABASE_URL));
   const username = decodeURIComponent(runtime.username);
   const appUsername = `monitrail_app.${postgresProject(runtime.href)}`;
-  const target = new URL("../../.env.phase3b.local", import.meta.url);
+  const target = environmentFile;
+  if (target.protocol !== "file:") throw new Error("Runtime environment entry is ambiguous.");
   const content = await readFile(target, "utf8");
   const saved = parseEnv(content);
   if (
@@ -95,7 +99,7 @@ export async function configureApplicationRole(client: ReturnType<typeof postgre
     return;
   }
   const password = randomBytes(32).toString("base64url");
-  const temporary = new URL("../../.env.phase3b.local.pending", import.meta.url);
+  const temporary = new URL(`${target.href}.pending`);
   runtime.username = appUsername;
   runtime.password = password;
   const updated = content.replace(/^DATABASE_URL=.*$/m, `DATABASE_URL=${runtime.href}`);
@@ -106,7 +110,7 @@ export async function configureApplicationRole(client: ReturnType<typeof postgre
     await transaction.unsafe(statement.command);
     await transaction`REVOKE CREATE ON SCHEMA public FROM PUBLIC`;
     await transaction`GRANT USAGE ON SCHEMA public TO monitrail_app`;
-    for (const table of appTables) {
+    for (const table of applicationTables) {
       await transaction`REVOKE ALL ON TABLE public.${transaction(table)}
         FROM PUBLIC,anon,authenticated,service_role`;
       await transaction`GRANT SELECT,INSERT,UPDATE,DELETE ON TABLE public.${transaction(table)}
