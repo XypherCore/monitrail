@@ -18,14 +18,54 @@ type Options = {
   audit?(page: Page, paths: string[]): Promise<void>;
 };
 
-async function tabTo(page: Page, target: Locator) {
-  await expect(target).toBeVisible();
-  await expect(target).toBeEnabled();
-  for (let index = 0; index < 180; index++) {
-    if (await target.evaluate((element) => element === document.activeElement)) return;
-    await page.keyboard.press("Tab");
+type KeyboardDiagnostics = {
+  matches: number;
+  visible: boolean;
+  enabled: boolean;
+  route: "settings" | "login" | "other";
+  readyState: string;
+  openDialogs: number;
+  focusedTag: string;
+  reason: "ambiguous_locator" | "unavailable_control" | "unreachable_control";
+};
+
+class KeyboardControlError extends Error {
+  readonly diagnostics: KeyboardDiagnostics;
+
+  constructor(diagnostics: KeyboardDiagnostics) {
+    super("A keyboard control was unavailable or unreachable.");
+    this.name = "KeyboardControlError";
+    this.diagnostics = diagnostics;
   }
-  throw new Error("A control could not be reached with Tab.");
+}
+
+async function tabTo(page: Page, target: Locator) {
+  let reason: KeyboardDiagnostics["reason"] = "unavailable_control";
+  try {
+    await expect(target).toBeVisible();
+    await expect(target).toBeEnabled();
+    reason = "unreachable_control";
+    for (let index = 0; index < 180; index++) {
+      if (await target.evaluate((element) => element === document.activeElement)) return;
+      await page.keyboard.press("Tab");
+    }
+    throw new Error();
+  } catch {
+    const matches = await target.count();
+    const state = await page.evaluate(() => ({
+      route: location.pathname === "/settings" ? "settings" as const : location.pathname === "/login" ? "login" as const : "other" as const,
+      readyState: document.readyState,
+      openDialogs: document.querySelectorAll("dialog[open]").length,
+      focusedTag: document.activeElement?.tagName ?? "NONE",
+    }));
+    throw new KeyboardControlError({
+      matches,
+      visible: matches === 1 && await target.isVisible(),
+      enabled: matches === 1 && await target.isEnabled(),
+      ...state,
+      reason: matches > 1 ? "ambiguous_locator" : reason,
+    });
+  }
 }
 
 async function activate(page: Page, target: Locator) {
@@ -97,7 +137,8 @@ export async function verifyBrowser({ origin, db, reportDirectory, audit }: Opti
   const foreignMonitor = randomUUID();
   const foreignPage = randomUUID();
   const session = newFixtureSession(owner);
-  const secondSession = newFixtureSession(owner);
+  let secondSession = newFixtureSession(owner);
+  const privateSessions = [session, secondSession];
   const checks: string[] = [];
   const errors: string[] = [];
   const external: string[] = [];
@@ -107,6 +148,8 @@ export async function verifyBrowser({ origin, db, reportDirectory, audit }: Opti
   let pageId = "";
   let telegramCode = "";
   let providerNavigation = 0;
+  let idleFixtureSessionActive: boolean | undefined;
+  let restoredFixtureSessionActive: boolean | undefined;
   const executablePath = process.env.CHROME_PATH ??
     (existsSync("/usr/bin/chromium") ? "/usr/bin/chromium" : chromium.executablePath());
   const browser = await chromium.launch({ executablePath, headless: true });
@@ -164,8 +207,8 @@ export async function verifyBrowser({ origin, db, reportDirectory, audit }: Opti
       assertHeaders(response.headers());
       assert.match(response.headers()["cache-control"], /no-store/);
       const html = await response.text();
-      for (const value of [owner, other, foreignMonitor, foreignPage, monitorId, pageId, session.token,
-        secondSession.token, "qa-owner@example.invalid", "QA private owner", "QA foreign monitor",
+      for (const value of [owner, other, foreignMonitor, foreignPage, monitorId, pageId, ...privateSessions.map(value => value.token),
+        "qa-owner@example.invalid", "QA private owner", "QA foreign monitor",
         "fixture-private-query", "fixture-private-fragment", "recipient.fixture.invalid"]) {
         if (value) assert(!html.includes(value));
       }
@@ -462,19 +505,35 @@ export async function verifyBrowser({ origin, db, reportDirectory, audit }: Opti
     const protectedAfterLogout = await page.goto(`${origin}/settings`);
     assert.equal(protectedAfterLogout?.status(), 200);
     await expect(page).toHaveURL(/\/login\?next=/);
+    stage = "restore fresh fixture sessions for account deletion";
+    idleFixtureSessionActive = (await db`SELECT expires>clock_timestamp() AS active FROM sessions WHERE session_token=${secondSession.token}`)[0]?.active === true;
+    // Lighthouse or a suspended host may outlive an unused ten-minute fixture.
+    // Model the new sign-in here, keeping another active device for revocation.
+    secondSession = newFixtureSession(owner);
+    const otherDevice = newFixtureSession(owner);
+    privateSessions.push(secondSession, otherDevice);
+    await db`INSERT INTO sessions(session_token,user_id,expires) VALUES
+      (${secondSession.token},${owner},${secondSession.expires}),(${otherDevice.token},${owner},${otherDevice.expires})`;
+    restoredFixtureSessionActive = (await db`SELECT count(*)::int AS count FROM sessions
+      WHERE session_token IN (${secondSession.token},${otherDevice.token}) AND expires>clock_timestamp()`)[0].count === 2;
+    assert(restoredFixtureSessionActive);
     await ownerContext.addCookies([fixtureCookie(origin, secondSession)]);
     await page.setViewportSize({ width: 360, height: 820 });
     await visit(page, `${origin}/settings`);
-    stage = "account deletion through the production settings flow";
+    await expect(page).toHaveURL(`${origin}/settings`);
+    stage = "open the account deletion confirmation with keyboard";
     await activate(page, page.getByRole("button", { name: "Delete account", exact: true }));
     dialog = page.getByRole("dialog", { name: "Delete account?" });
+    stage = "cancel the account deletion confirmation with keyboard";
     await activate(page, dialog.getByRole("button", { name: "Cancel", exact: true }));
     await expect(dialog).not.toBeVisible();
     await publicHtml("qa-renamed-status");
+    stage = "reopen the account deletion confirmation with keyboard";
     await activate(page, page.getByRole("button", { name: "Delete account", exact: true }));
     await assertViewport(page);
     screenshots.push("delete-account-mobile.png");
     await page.screenshot({ path: join(reportDirectory, "delete-account-mobile.png"), fullPage: true });
+    stage = "submit account deletion with keyboard confirmation";
     await activate(page, dialog.getByRole("button", { name: "Delete account", exact: true }));
     await expect(page).toHaveURL(`${origin}/?account=deleted`);
     await expect(page.getByText("Your account and its data have been deleted.")).toBeVisible();
@@ -500,7 +559,9 @@ export async function verifyBrowser({ origin, db, reportDirectory, audit }: Opti
     return summary;
   } catch (error) {
     const location = error instanceof Error ? error.stack?.split("\n").find((line) => line.includes("/qa/browser.ts:"))?.trim() : undefined;
-    await writeFile(join(reportDirectory, "browser.json"), `${JSON.stringify({ passed: false, stage, error: error instanceof Error ? error.name : "Unknown", location }, null, 2)}\n`, { mode: 0o600 });
+    await writeFile(join(reportDirectory, "browser.json"), `${JSON.stringify({ passed: false, stage, error: error instanceof Error ? error.name : "Unknown", location,
+      idleFixtureSessionActive, restoredFixtureSessionActive, keyboard: error instanceof KeyboardControlError ? error.diagnostics : undefined,
+    }, null, 2)}\n`, { mode: 0o600 });
     throw new Error(`Browser verification failed during ${stage}.`);
   } finally {
     telegramCode = "";
