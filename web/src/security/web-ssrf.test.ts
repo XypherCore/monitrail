@@ -31,11 +31,11 @@ function response(statusCode = 204) {
   return stream;
 }
 
-function fixture(makeReply: () => IncomingMessage = response) {
+function fixture(makeReply: () => IncomingMessage = response, origin = appUrl) {
   const calls: Call[] = [];
   const replies: IncomingMessage[] = [];
-  const resolve = vi.fn(async () => publicRecords);
-  const isBlockedHost = vi.fn(async () => false);
+  const resolve = vi.fn(async (_host: string) => publicRecords);
+  const isBlockedHost = vi.fn(async (_host: string) => false);
   const request = vi.fn((options: RequestOptions, callback: (reply: IncomingMessage) => void) => {
     const handle = new EventEmitter() as ClientRequest;
     const call: Call = { options, request: handle, callback };
@@ -62,7 +62,7 @@ function fixture(makeReply: () => IncomingMessage = response) {
     calls.push(call);
     return handle;
   });
-  const guard = createWebGuard({ appUrl, isBlockedHost }, { resolve, request });
+  const guard = createWebGuard({ appUrl: origin, isBlockedHost }, { resolve, request });
   return { guard, resolve, isBlockedHost, request, calls, replies };
 }
 
@@ -144,6 +144,84 @@ describe("Node monitor admission", () => {
 });
 
 describe("Node guarded webhook transport", () => {
+  it("registers only the fixed Telegram webhook method and canonical application callback", async () => {
+    const botToken = "123456:fixture_Bot_Token_Is_Not_Real";
+    const secret = "fixture_telegram_webhook_secret_is_not_real";
+    const f = fixture(() => {
+      const reply = response(200);
+      (reply as unknown as PassThrough).end('{"ok":true,"result":true}');
+      return reply;
+    });
+    await expect(f.guard.registerTelegramWebhook(botToken, secret)).resolves.toEqual({ statusCode: 200 });
+    expect(f.calls[0].options).toMatchObject({
+      hostname: "api.telegram.org", port: 443, path: `/bot${botToken}/setWebhook`,
+      method: "POST", servername: "api.telegram.org", rejectUnauthorized: true,
+    });
+    expect(f.calls[0].connectedAddress).toBe("1.1.1.1");
+    expect(JSON.parse(String(f.calls[0].body))).toEqual({
+      url: `${appUrl}/api/telegram/webhook`, secret_token: secret, allowed_updates: ["message"],
+    });
+    expect(f.isBlockedHost.mock.calls.map(([host]) => host)).toEqual(["app.example.test", "api.telegram.org"]);
+    expect(f.resolve.mock.calls.map(([host]) => host)).toEqual(["app.example.test", "api.telegram.org"]);
+    expect(f.replies[0].destroy).toHaveBeenCalled();
+  });
+
+  it("rejects unsafe Telegram registration settings before making a request", async () => {
+    const f = fixture();
+    const token = "123456:fixture_Bot_Token_Is_Not_Real";
+    const secret = "fixture_telegram_webhook_secret_is_not_real";
+    await expect(f.guard.registerTelegramWebhook(`${token}/getMe`, secret)).rejects.toMatchObject({ code: "blocked" });
+    await expect(f.guard.registerTelegramWebhook(token, "too-short")).rejects.toMatchObject({ code: "blocked" });
+    expect(f.request).not.toHaveBeenCalled();
+    for (const origin of ["http://app.example.test", "https://127.0.0.1", "https://[::1]"]) {
+      const unsafe = fixture(response, origin);
+      await expect(unsafe.guard.registerTelegramWebhook(token, secret)).rejects.toMatchObject({ code: "blocked" });
+      expect(unsafe.request).not.toHaveBeenCalled();
+    }
+  });
+
+  it.each(["app.example.test", "api.telegram.org"])("refuses a private DNS answer while registering Telegram (%s)", async (privateHost) => {
+    const f = fixture();
+    f.resolve.mockImplementation(async (host) => host === privateHost ? [{ address: "10.0.0.1", family: 4 }] : publicRecords);
+    await expect(f.guard.registerTelegramWebhook("123456:fixture_Bot_Token_Is_Not_Real", "fixture_telegram_webhook_secret_is_not_real"))
+      .rejects.toMatchObject({ code: "blocked" });
+    expect(f.calls.every((call) => call.connectedAddress === undefined)).toBe(true);
+  });
+
+  it.each(["app.example.test", "api.telegram.org"])("refuses a blocklisted registration host (%s)", async (blockedHost) => {
+    const f = fixture();
+    f.isBlockedHost.mockImplementation(async (host) => host === blockedHost);
+    await expect(f.guard.registerTelegramWebhook("123456:fixture_Bot_Token_Is_Not_Real", "fixture_telegram_webhook_secret_is_not_real"))
+      .rejects.toMatchObject({ code: "blocked" });
+    expect(f.request).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    [302, '{"ok":true,"result":true}'], [200, '{"ok":false,"description":"private-provider-detail"}'],
+    [200, '{"ok":true,"result":false}'], [200, "private-invalid-reply"],
+    [200, JSON.stringify({ ok: true, result: true, extra: "x".repeat(65_536) })],
+  ] as const)("refuses unsuccessful Telegram registration without exposing the provider reply (%i)", async (status, body) => {
+    const f = fixture(() => {
+      const reply = response(status);
+      (reply as unknown as PassThrough).end(body);
+      return reply;
+    });
+    const failure = await f.guard.registerTelegramWebhook("123456:fixture_Bot_Token_Is_Not_Real", "fixture_telegram_webhook_secret_is_not_real").catch((error) => error);
+    expect(failure).toMatchObject({ code: "bad_status" });
+    expect(String(failure)).not.toMatch(/private-|fixture_Bot_Token/);
+    expect(f.request).toHaveBeenCalledOnce();
+  });
+
+  it("keeps the existing five-second total deadline for Telegram registration", async () => {
+    vi.useFakeTimers();
+    const f = fixture(() => response(200));
+    const result = expect(f.guard.registerTelegramWebhook("123456:fixture_Bot_Token_Is_Not_Real", "fixture_telegram_webhook_secret_is_not_real"))
+      .rejects.toMatchObject({ code: "timeout" });
+    await vi.advanceTimersByTimeAsync(5000);
+    await result;
+    expect(f.replies[0].destroy).toHaveBeenCalled();
+  });
+
   it("validates an exact webhook and its public DNS without posting", async () => {
     const f = fixture();
     expect(await f.guard.validateWebhook("https://discord.com/api/webhooks/123/fixture", "discord"))

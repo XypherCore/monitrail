@@ -21,6 +21,7 @@
     "db:verify-postgres": "node --env-file-if-exists=.env.phase3b.local scripts/db/rev2.ts verify --confirm-clean-project",
     "db:prepare-production": "node --env-file=.env.production.local scripts/db/production.ts --confirm-fresh-production-project",
     "deploy:configure-production": "node scripts/deploy/configure-production.ts",
+    "deploy:connect-services": "node scripts/deploy/connect-services.ts",
     "auth:invite": "node --env-file-if-exists=.env.phase3b.local scripts/auth/create-invite.ts --confirm-invite",
     "alerts:rotate-keys": "node scripts/alerts/rotate-channel-keys.ts"
   },

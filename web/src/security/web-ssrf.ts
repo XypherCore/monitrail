@@ -14,6 +14,7 @@ import {
 } from "../../../shared/ssrf/address.ts";
 import { awaitSignal } from "../../../shared/ssrf/io.ts";
 import { isTelegramBotToken, isTelegramChatId } from "../alerts/telegram-target.ts";
+import { isTelegramWebhookSecret } from "../alerts/channel-input.ts";
 
 type ErrorCode = "blocked" | "dns" | "timeout" | "connect" | "tls" | "bad_status" | "other";
 const messages: Record<ErrorCode, string> = {
@@ -93,7 +94,7 @@ function serializePayload(payload: unknown): string {
 
 // The fixed Telegram API has an application-level success field. Only this
 // trusted provider's bounded reply is read, and the result stays a boolean.
-async function telegramSucceeded(response: IncomingMessage): Promise<boolean> {
+async function telegramSucceeded(response: IncomingMessage, registration = false): Promise<boolean> {
   const chunks: Buffer[] = [];
   let bytes = 0;
   for await (const data of response) {
@@ -103,7 +104,8 @@ async function telegramSucceeded(response: IncomingMessage): Promise<boolean> {
     chunks.push(chunk);
   }
   const reply: unknown = JSON.parse(Buffer.concat(chunks, bytes).toString("utf8"));
-  return typeof reply === "object" && reply !== null && "ok" in reply && reply.ok === true;
+  return typeof reply === "object" && reply !== null && "ok" in reply && reply.ok === true &&
+    (!registration || ("result" in reply && reply.result === true));
 }
 
 /**
@@ -208,7 +210,7 @@ export function createWebGuard(options: Options, dependencies: Partial<Dependenc
     url: URL,
     data: string,
     signal: AbortSignal,
-    confirmTelegram = false,
+    confirmTelegram: boolean | "registration" = false,
   ): Promise<{ statusCode: number }> {
     const host = hostname(url);
     const lookupAtConnect = dialLookup(host, signal);
@@ -271,7 +273,7 @@ export function createWebGuard(options: Options, dependencies: Partial<Dependenc
             ) {
               rejectResult(new WebGuardError("bad_status"));
             } else if (confirmTelegram) {
-              void telegramSucceeded(response).then(
+              void telegramSucceeded(response, confirmTelegram === "registration").then(
                 (ok) => {
                   if (ok) resolveResult({ statusCode });
                   else rejectResult(new WebGuardError("bad_status"));
@@ -353,6 +355,21 @@ export function createWebGuard(options: Options, dependencies: Partial<Dependenc
           text,
           link_preview_options: { is_disabled: true },
         }), signal, true);
+      });
+    },
+    registerTelegramWebhook(botToken: string, webhookSecret: string): Promise<{ statusCode: number }> {
+      return budget(async (signal) => {
+        if (!isTelegramBotToken(botToken) || !isTelegramWebhookSecret(webhookSecret)) blocked();
+        const callback = webhookTarget(`${new URL(options.appUrl).origin}/api/telegram/webhook`, "webhook");
+        await hostAllowed(callback, signal);
+        await addresses(hostname(callback), signal);
+        const url = new URL(`https://api.telegram.org/bot${botToken}/setWebhook`);
+        await hostAllowed(url, signal);
+        return post(url, serializePayload({
+          url: callback.href,
+          secret_token: webhookSecret,
+          allowed_updates: ["message"],
+        }), signal, "registration");
       });
     },
   };
