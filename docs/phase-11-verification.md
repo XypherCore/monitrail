@@ -78,6 +78,10 @@ healthy result.
   no longer accepts the documented legacy `public` property. Removed that
   property before retrying. The CLI's source/log privacy defaults remain
   in use. No application timeout or security policy changed for this fix.
+- The next Vercel build compiled the application but its web-scoped install
+  omitted the repository's TypeScript build tool. The install command now
+  explicitly uses the parent root lockfile and includes pinned development
+  build dependencies. No dependency versions changed.
 
 ## Open completion checks
 

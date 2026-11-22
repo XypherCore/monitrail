@@ -14,7 +14,8 @@ The source license is MIT. Reconsider hosting terms before public signups.
 
 The Vercel project uses `web` as its root, Node 24 and the pinned root
 lockfile. Keep shared source outside that root included. `web/vercel.json`
-uses the workspace build and a lockfile installation without package
+uses the workspace build and a repository-root lockfile installation,
+including the pinned development build tools, without package
 lifecycle scripts. Keep deployment logs and source private using the CLI's
 default settings. Root
 `.vercelignore` excludes local credentials, operator state and build output.
