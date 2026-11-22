@@ -6,6 +6,7 @@
   "compatibility_flags": ["global_fetch_strictly_public"],
   "workers_dev": false,
   "preview_urls": false,
+  "vars": { "APP_URL": "https://monitrail.duckdns.org" },
   "triggers": { "crons": ["* * * * *", "17 3 * * *"] },
   "queues": {
     "producers": [{ "binding": "CHECK_TICKS", "queue": "monitrail-check-ticks" }],
