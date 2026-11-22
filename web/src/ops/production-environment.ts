@@ -4,9 +4,10 @@ import { identity } from "../../../shared/identity.ts";
 import { createChannelCipher } from "../alerts/channel-crypto.ts";
 import { readAuthConfig } from "../auth/config.ts";
 import { readRuntimePostgresUrl } from "../db/postgres-config.ts";
+import { isMonitorId } from "../monitors/input.ts";
 
 type Environment = Readonly<Record<string, string | undefined>>;
-export type PublicProductionSettings = { origin: string; abuseContact: string };
+export type PublicProductionSettings = { origin: string; abuseContact: string; proofCapture?: boolean };
 const providers = ["AUTH_GITHUB_ID", "AUTH_GITHUB_SECRET", "AUTH_GOOGLE_ID", "AUTH_GOOGLE_SECRET"] as const;
 const runtimeNames = [
   "DATABASE_URL", "DATABASE_CA_PEM", "AUTH_SECRET", ...providers,
@@ -14,6 +15,7 @@ const runtimeNames = [
   "CHANNEL_ENC_PREVIOUS_KEY", "CHANNEL_ENC_PREVIOUS_KEY_ID",
   "TELEGRAM_BOT_TOKEN", "TELEGRAM_WEBHOOK_SECRET", "TELEGRAM_BOT_USERNAME",
   "APP_URL", "ABUSE_CONTACT_EMAIL", "SIGNUP_MODE",
+  "DOGFOOD_EXPORT_HMAC_SECRET", "DOGFOOD_EXPORT_MONITOR_IDS",
 ] as const;
 const invalid = () => new Error("Production settings are invalid.");
 
@@ -29,9 +31,23 @@ export function prepareProductionEnvironment(existing: Environment, settings: Pu
     saved.SIGNUP_MODE = "invite";
     saved.AUTH_SECRET ||= randomBytes(48).toString("base64url");
     saved.INTERNAL_HMAC_SECRET ||= randomBytes(48).toString("base64url");
+    if (settings.proofCapture) {
+      saved.DOGFOOD_EXPORT_HMAC_SECRET ||= randomBytes(48).toString("base64url");
+      saved.DOGFOOD_PROOF_KEY ||= randomBytes(32).toString("base64url");
+    }
+    if (saved.DOGFOOD_EXPORT_HMAC_SECRET && (saved.DOGFOOD_EXPORT_HMAC_SECRET.length < 32 ||
+      /[\r\n\0]/.test(saved.DOGFOOD_EXPORT_HMAC_SECRET) || saved.DOGFOOD_EXPORT_HMAC_SECRET === saved.INTERNAL_HMAC_SECRET)) throw invalid();
+    if (saved.DOGFOOD_PROOF_KEY && (Buffer.from(saved.DOGFOOD_PROOF_KEY, "base64url").length !== 32 ||
+      Buffer.from(saved.DOGFOOD_PROOF_KEY, "base64url").toString("base64url") !== saved.DOGFOOD_PROOF_KEY)) throw invalid();
     if (!saved.CHANNEL_ENC_KEY && !saved.CHANNEL_ENC_KEY_ID) {
       saved.CHANNEL_ENC_KEY = randomBytes(32).toString("base64url");
       saved.CHANNEL_ENC_KEY_ID = "production-v1";
+    }
+    if (saved.DOGFOOD_PROOF_KEY && saved.DOGFOOD_PROOF_KEY === saved.CHANNEL_ENC_KEY) throw invalid();
+    if (saved.DOGFOOD_EXPORT_MONITOR_IDS) {
+      const ids = saved.DOGFOOD_EXPORT_MONITOR_IDS.split(",");
+      if (ids.length !== 2 || ids.some((id) => !isMonitorId(id)) || ids[0].toLowerCase() === ids[1].toLowerCase()) throw invalid();
+      saved.DOGFOOD_EXPORT_MONITOR_IDS = ids.map((id) => id.toLowerCase()).join(",");
     }
     for (const key of providers) if (!saved[key] && development?.[key]) saved[key] = development[key];
     const auth = readAuthConfig(saved, true);

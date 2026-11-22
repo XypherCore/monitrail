@@ -42,8 +42,8 @@ jobs:
         run: npm run typecheck
       - name: Run application and security suites
         run: npm run test --workspaces -- --maxWorkers=2
-      - name: Run independent probe tests
-        run: node --test scripts/check-health.test.mjs
+      - name: Run independent probe and proof tests
+        run: node --test scripts/*.test.mjs
       - name: Verify native Worker transport
         run: npm run test:runtime --workspace checker
       - name: Scan configured values and browser assets

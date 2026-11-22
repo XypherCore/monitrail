@@ -198,7 +198,8 @@ supplied.
      and filters by ownership. No direct table access in route handlers.
   2. **Service capabilities** for internal work: `claimChecks`,
      `ingestResults`, `runMaintenance`, `deliverOutbox`, `manageBlocklist`,
-     the Telegram webhook handler. Each is a narrow named function reachable
+     the Telegram webhook handler and the scoped dogfood evidence export.
+     Each is a narrow named function reachable
      only from an authenticated entry point (HMAC route, the Telegram
      webhook secret, or an admin CLI script). No generic "skip ownership"
      flag and no fake user IDs.
@@ -355,6 +356,22 @@ points to the provider CA when it is needed for TLS verification.
 For hosts without that local file, DATABASE_CA_PEM supplies one provider
 CA certificate through the environment. Configure one explicit CA source
 at a time. Certificate and hostname verification stay enabled.
+
+Optional dogfood capture uses DOGFOOD_EXPORT_HMAC_SECRET and
+DOGFOOD_EXPORT_MONITOR_IDS in the web runtime. The dedicated export key
+must differ from INTERNAL_HMAC_SECRET. The signed endpoint accepts only
+an empty object and exports a database-clock rolling 24-hour projection for
+exactly two server-configured monitor IDs. It does not accept IDs or query
+windows from a caller. It uses the existing canonical signing, body, skew
+and durable nonce checks and no-store responses.
+
+GitHub's proof workflow receives only APP_URL, the dedicated export key
+and DOGFOOD_PROOF_KEY. The encryption key is 32 random bytes in canonical
+base64url and is never uploaded to Vercel. The collector encrypts snapshots
+with AES-256-GCM before artifact creation, with a fresh 12-byte nonce,
+16-byte tag and version/key-ID authenticated data. Only encrypted artifacts
+are uploaded. Database credentials never enter GitHub. Capture remains
+disabled until the two monitors and proof start are configured.
 
 ## Folder structure
 ```

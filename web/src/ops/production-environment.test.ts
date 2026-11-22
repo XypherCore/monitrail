@@ -28,6 +28,23 @@ describe("production environment preparation", () => {
     const second = prepareProductionEnvironment(first.saved, options, { ...oauth, AUTH_GITHUB_SECRET: "different" });
     expect(second.saved).toEqual(first.saved);
   });
+  it("uses a dedicated proof signing key and keeps its decryption key out of Vercel", () => {
+    const first = prepareProductionEnvironment({ DATABASE_URL: runtime }, { ...options, proofCapture: true }, oauth);
+    expect(first.saved.DOGFOOD_EXPORT_HMAC_SECRET).not.toBe(first.saved.INTERNAL_HMAC_SECRET);
+    expect(first.runtime.DOGFOOD_EXPORT_HMAC_SECRET).toBe(first.saved.DOGFOOD_EXPORT_HMAC_SECRET);
+    expect(Buffer.from(first.saved.DOGFOOD_PROOF_KEY, "base64url")).toHaveLength(32);
+    expect(first.runtime.DOGFOOD_PROOF_KEY).toBeUndefined();
+    expect(prepareProductionEnvironment(first.saved, { ...options, proofCapture: true }).saved).toEqual(first.saved);
+    expect(() => prepareProductionEnvironment({ ...first.saved, DOGFOOD_EXPORT_HMAC_SECRET: first.saved.INTERNAL_HMAC_SECRET }, options)).toThrow();
+    expect(() => prepareProductionEnvironment({ ...first.saved, DOGFOOD_PROOF_KEY: first.saved.CHANNEL_ENC_KEY }, options)).toThrow();
+  });
+  it("accepts only two distinct configured proof monitor identifiers", () => {
+    const ids = "a1000000-0000-4000-8000-000000000001,a1000000-0000-4000-8000-000000000002";
+    expect(prepareProductionEnvironment({ DATABASE_URL: runtime, DOGFOOD_EXPORT_MONITOR_IDS: ids }, options, oauth).runtime.DOGFOOD_EXPORT_MONITOR_IDS).toBe(ids);
+    for (const invalid of ["invalid", ids.split(",")[0], `${ids.split(",")[0]},${ids.split(",")[0]}`]) {
+      expect(() => prepareProductionEnvironment({ DATABASE_URL: runtime, DOGFOOD_EXPORT_MONITOR_IDS: invalid }, options, oauth)).toThrow();
+    }
+  });
   it("never uploads unknown variables, admin credentials or local CA paths", () => {
     const result = prepareProductionEnvironment({ DATABASE_URL: runtime, MIGRATION_DATABASE_URL: admin, PRIVATE_OPERATOR_VALUE: "never-upload", DATABASE_CA_FILE: ".certs/ca.crt" }, options, oauth);
     expect(result.runtime.PRIVATE_OPERATOR_VALUE).toBeUndefined();

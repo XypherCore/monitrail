@@ -23,10 +23,10 @@ export function parseConfigureArguments(args: readonly string[]) {
       const value = args[++index];
       if (!value || value.startsWith("--")) throw new Error();
       settings[key] = value;
-    } else if (!["--reuse-oauth-apps", "--upload", "--prepare-only"].includes(key)) throw new Error();
+    } else if (!["--reuse-oauth-apps", "--enable-proof-capture", "--upload", "--prepare-only"].includes(key)) throw new Error();
   }
   if (!settings["--origin"] || !settings["--abuse-contact"] || flags.has("--upload") === flags.has("--prepare-only")) throw new Error();
-  return { origin: settings["--origin"], abuseContact: settings["--abuse-contact"], reuseOAuth: flags.has("--reuse-oauth-apps"), upload: flags.has("--upload") };
+  return { origin: settings["--origin"], abuseContact: settings["--abuse-contact"], proofCapture: flags.has("--enable-proof-capture"), reuseOAuth: flags.has("--reuse-oauth-apps"), upload: flags.has("--upload") };
 }
 
 export async function readPrivateConfiguration(file: URL) {
@@ -56,10 +56,11 @@ export async function savePrivateConfiguration(file: URL, original: Awaited<Retu
   }
 }
 
-function cliEnvironment(): NodeJS.ProcessEnv {
+export function cliEnvironment(provider: "vercel" | "github" = "vercel", ambient: Readonly<Record<string, string | undefined>> = process.env): NodeJS.ProcessEnv {
   const env: NodeJS.ProcessEnv = { NODE_ENV: "production", VERCEL_TELEMETRY_DISABLED: "1", NO_UPDATE_NOTIFIER: "1" };
-  for (const name of ["PATH", "HOME", "USER", "LOGNAME", "LANG", "LC_ALL", "TERM", "NO_COLOR", "XDG_CONFIG_HOME", "XDG_CACHE_HOME", "XDG_DATA_HOME", "VERCEL_TOKEN", "VERCEL_ORG_ID", "VERCEL_PROJECT_ID"]) {
-    if (process.env[name]) env[name] = process.env[name];
+  const credentials = provider === "vercel" ? ["VERCEL_TOKEN", "VERCEL_ORG_ID", "VERCEL_PROJECT_ID"] : ["GH_CONFIG_DIR", "GH_HOST", "GH_TOKEN", "GITHUB_TOKEN"];
+  for (const name of ["PATH", "HOME", "USER", "LOGNAME", "LANG", "LC_ALL", "TERM", "NO_COLOR", "XDG_CONFIG_HOME", "XDG_CACHE_HOME", "XDG_DATA_HOME", ...credentials]) {
+    if (ambient[name]) env[name] = ambient[name];
   }
   return env;
 }
@@ -110,6 +111,23 @@ async function uploadVariable(key: string, value: string) {
   await completion;
 }
 
+async function uploadProofSecret(key: "DOGFOOD_EXPORT_HMAC_SECRET" | "DOGFOOD_PROOF_KEY", value: string) {
+  const source = new URL(identity.sourceRepository);
+  if (source.origin !== "https://github.com" || !/^\/[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/.test(source.pathname) || source.search || source.hash) throw new Error();
+  const child = spawn("gh", ["secret", "set", key, "--repo", source.pathname.slice(1)], {
+    cwd: repository, env: cliEnvironment("github"), stdio: ["pipe", "pipe", "pipe"], timeout: 30_000,
+  });
+  child.stdout.resume();
+  child.stderr.resume();
+  const completion = new Promise<void>((resolve, reject) => {
+    child.once("error", () => reject(new Error()));
+    child.once("close", (code) => code === 0 ? resolve() : reject(new Error()));
+    child.stdin.on("error", () => {});
+  });
+  child.stdin.end(value);
+  await completion;
+}
+
 /** Run by the owner locally; secret-file guards may prohibit agent execution. */
 export async function configureProduction(args: readonly string[]) {
   const options = parseConfigureArguments(args);
@@ -140,6 +158,10 @@ export async function configureProduction(args: readonly string[]) {
   await savePrivateConfiguration(productionFile, original, prepared.saved);
   if (options.upload) {
     for (const [key, value] of Object.entries(prepared.runtime)) await uploadVariable(key, value);
+    if (options.proofCapture) {
+      await uploadProofSecret("DOGFOOD_EXPORT_HMAC_SECRET", prepared.saved.DOGFOOD_EXPORT_HMAC_SECRET);
+      await uploadProofSecret("DOGFOOD_PROOF_KEY", prepared.saved.DOGFOOD_PROOF_KEY);
+    }
   }
 }
 

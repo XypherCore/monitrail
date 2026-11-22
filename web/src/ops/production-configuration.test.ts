@@ -3,9 +3,18 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { pathToFileURL } from "node:url";
 import { describe, expect, it } from "vitest";
-import { parseConfigureArguments, parseConfiguredProductionKeys, readPrivateConfiguration, savePrivateConfiguration } from "../../scripts/deploy/configure-production.ts";
+import { cliEnvironment, parseConfigureArguments, parseConfiguredProductionKeys, readPrivateConfiguration, savePrivateConfiguration } from "../../scripts/deploy/configure-production.ts";
 
 describe("local production configuration safety", () => {
+  it("passes only the selected provider's tool credentials to each CLI", () => {
+    const ambient = { PATH: "/fixture/bin", VERCEL_TOKEN: "vercel-credential-fixture", GH_TOKEN: "github-credential-fixture", DATABASE_URL: "never-inherit", INTERNAL_HMAC_SECRET: "never-inherit" };
+    expect(cliEnvironment("vercel", ambient)).toMatchObject({ PATH: ambient.PATH, VERCEL_TOKEN: ambient.VERCEL_TOKEN });
+    expect(cliEnvironment("vercel", ambient).GH_TOKEN).toBeUndefined();
+    expect(cliEnvironment("github", ambient)).toMatchObject({ PATH: ambient.PATH, GH_TOKEN: ambient.GH_TOKEN });
+    expect(cliEnvironment("github", ambient).VERCEL_TOKEN).toBeUndefined();
+    expect(cliEnvironment("github", ambient).DATABASE_URL).toBeUndefined();
+    expect(cliEnvironment("vercel", ambient).INTERNAL_HMAC_SECRET).toBeUndefined();
+  });
   it("refuses incomplete paginated metadata and selects only production names", () => {
     const envs = [{ key: "DATABASE_URL", target: ["production"], value: "never-return" }, { key: "PREVIEW_ONLY", target: ["preview"] }];
     expect(parseConfiguredProductionKeys({ envs, pagination: { next: null } })).toEqual(["DATABASE_URL"]);
@@ -17,6 +26,7 @@ describe("local production configuration safety", () => {
     const args = ["--origin", "https://app.example.invalid", "--abuse-contact", "abuse@example.invalid"];
     expect(parseConfigureArguments([...args, "--prepare-only", "--reuse-oauth-apps"])).toMatchObject({ upload: false, reuseOAuth: true });
     expect(parseConfigureArguments([...args, "--upload"])).toMatchObject({ upload: true, reuseOAuth: false });
+    expect(parseConfigureArguments([...args, "--upload", "--enable-proof-capture"])).toMatchObject({ proofCapture: true });
     for (const invalid of [args, [...args, "--upload", "--prepare-only"], [...args, "--upload", "--upload"], [...args, "--upload", "--unknown"]]) {
       expect(() => parseConfigureArguments(invalid)).toThrow();
     }

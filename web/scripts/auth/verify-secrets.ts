@@ -30,6 +30,8 @@ const credentialNames = [
   "TELEGRAM_BOT_TOKEN",
   "TELEGRAM_WEBHOOK_SECRET",
   "INVITE_CODE",
+  "DOGFOOD_EXPORT_HMAC_SECRET",
+  "DOGFOOD_PROOF_KEY",
 ];
 
 async function configuredValues(): Promise<Set<string>> {

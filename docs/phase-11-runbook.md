@@ -17,6 +17,9 @@ lockfile. Keep shared source outside that root included. `web/vercel.json`
 uses the workspace build and a lockfile installation without package
 lifecycle scripts. Deployment logs and source remain private. Root
 `.vercelignore` excludes local credentials, operator state and build output.
+Fluid compute is enabled so post-response alert work has the platform's
+supported lifecycle. The existing monitor and delivery timeouts are
+unchanged. [Vercel duration limits](https://vercel.com/docs/functions/configuring-functions/duration).
 
 Keep the production connection strings in ignored
 `web/.env.production.local`. DATABASE_URL initially uses the transaction
@@ -107,12 +110,61 @@ a common UTC proof start after deployment acceptance. Keep their
 configuration unchanged. The owner excluded the previously proposed
 client site. No checks against that site form part of this proof.
 
+### Automatic encrypted capture
+
+The owner approved automatic collection. The proof workflow runs at
+02:43 and 14:43 UTC when the repository variable DOGFOOD_ENABLED is
+`true` and APP_URL is configured. A manual dispatch requires complete
+configuration and fails if it is missing. GitHub schedules can be delayed.
+
+Prepare the dedicated keys with the configuration command's
+`--enable-proof-capture` option. Make the verified GitHub CLI available on
+PATH for this command. The dedicated export key goes to Vercel and GitHub;
+the proof encryption key goes only to the private local file and GitHub.
+Existing production keys are preserved. The exporter refuses the checker
+key for proof authentication. Database credentials are never uploaded to
+GitHub.
+
+After the two approved monitors exist, add their comma-separated IDs as
+DOGFOOD_EXPORT_MONITOR_IDS in the ignored production file. Re-run the
+production configuration command and deploy the updated environment.
+The signed export accepts no IDs or time bounds from a request. It uses
+the two server-configured IDs and a rolling 24-hour database-clock window.
+Without both configured IDs it fails closed.
+
+Before enabling the schedule, manually dispatch the proof workflow and
+verify that its encrypted artifact can be downloaded and decrypted. The
+artifact name includes the run ID and attempt. Only `dogfood-evidence.enc`
+is uploaded, with 30-day retention. Encryption occurs before the first
+file write. The format is `v1.<key-id>.<nonce>.<ciphertext-and-tag>` using
+AES-256-GCM and authenticated version/key-ID metadata. The default key ID
+is `proof-1`; preserve it or configure the same ID for capture/decryption.
+
+Download artifacts into the private durable evidence directory. With the
+proof key loaded locally, decrypt each new snapshot:
+
+```sh
+node --env-file=web/.env.production.local scripts/decrypt-dogfood.mjs \
+  --input /private/monitrail-proof/dogfood-evidence.enc \
+  --output /private/monitrail-proof/new-snapshot.json
+```
+
+Use the first verified database snapshot to record the common proof start
+and baseline revisions in the private manifest, then enable the scheduled
+workflow. Keep every encrypted capture and decryption key backed up.
+Capture failures require attention before one-day receipt retention
+creates an evidence gap. An incomplete proof never counts as a pass.
+After the final 14-day grace cutoff, trigger a final manual capture and
+verify its query window extends beyond that cutoff before final scoring.
+
+### Manual fallback and assessment
+
 Keep evidence in a private durable directory outside the checkout, with
 owner-only directory permissions. Do not use temporary storage as the sole
 14-day record. The exporter and scorer refuse source-tree output, symlinks
 and overwrites and create files with mode 0600.
 
-Capture overlapping evidence at least twice daily, before the one-day
+The manual fallback captures overlapping evidence at least twice daily, before the one-day
 attempt cleanup can remove receipt timestamps. Use a new filename for
 every capture. From `web`, with the production administration environment
 loaded locally:

@@ -88,7 +88,7 @@ async function rows(tx: DataExecutor, statement: SQL): Promise<Record<string, un
   return (await tx.execute(statement)).rows as Record<string, unknown>[];
 }
 
-/** Operator-only, read-only capability. Never expose it through an application route. */
+/** Read-only projection for operator tools and the separately signed, scoped proof endpoint. */
 export function createDogfoodEvidenceCapability(db: DataExecutor) {
   return {
     async exportDogfoodEvidence(value: unknown): Promise<DogfoodEvidence> {

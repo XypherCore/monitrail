@@ -34,6 +34,11 @@ healthy result.
   public address before hosted acceptance.
 - Created the private production check queue. The Worker has not yet been
   deployed. Its public and preview endpoints remain disabled in config.
+- The owner reported DNS and OAuth dashboard changes complete and ran the
+  reviewed production settings upload successfully. The dedicated proof
+  keys were then prepared and uploaded through the same owner-only
+  command. GitHub metadata confirmed the two expected secret names without
+  returning their values. Hosted sign-in and TLS remain acceptance gates.
 - Added the narrow, tested blocklist administrator capability and private
   evidence exporter. Added a strict offline proof scorer and database-backed
   integration tests for daily and final grace boundaries. Test fixtures are
@@ -42,6 +47,31 @@ healthy result.
   preparation, an upload allowlist excluding administrative credentials,
   and local-source upload exclusions. Independent review findings about
   ambient CA settings, stale secrets and paginated metadata were fixed.
+- The owner approved automatic encrypted proof capture. Added a separately
+  signed, read-only endpoint with server-owned monitor IDs/window, a
+  strict response projection, AES-GCM encryption before artifact creation
+  and a gated twice-daily workflow. The verified upload-artifact v7.0.2
+  action is pinned by commit. The database credential never enters GitHub
+  and the proof encryption key never enters Vercel.
+- Initial local regression checks passed 886 tests, lint, type checking,
+  the Worker dry-run build, secret scans and the dependency audit. Further
+  signing, registration and encrypted-capture changes require the final
+  combined rerun, currently in progress.
+- The final combined run passed lint, both type checks, 541 web tests,
+  377 checker tests, 14 independent probe/crypto/collector tests and seven
+  native Worker tests, 939 total. The Worker dry-run bundle and isolated
+  production build passed. All production keyboard/security journeys
+  passed with zero console errors or unexpected external requests. The
+  storage fixture measured 139,474,623 bytes, 27.89% of the plan allowance.
+  An independent second model reviewed the full security and workflow
+  changes and left no open findings.
+- An earlier isolated browser run outlived an unused ten-minute fixture
+  session after a long host pause. The fixture now creates fresh current
+  and noncurrent sessions immediately before the deletion journey and
+  asserts both are active. Product session limits were unchanged. A
+  diagnostic full run passed. The subsequent retry copied an unfinished
+  module during concurrent work and stopped at build. The final run uses
+  the completed source.
 
 ## Open completion checks
 

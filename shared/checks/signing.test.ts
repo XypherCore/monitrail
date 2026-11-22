@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   INTERNAL_BODY_LIMIT_BYTES,
   INTERNAL_CLAIM_PATH,
+  INTERNAL_DOGFOOD_EVIDENCE_PATH,
   INTERNAL_INGEST_PATH,
   INTERNAL_MAINTENANCE_PATH,
   INTERNAL_NONCE_HEADER,
@@ -37,6 +38,13 @@ describe("portable internal request signing", () => {
     const first = await signInternalRequest(secret, INTERNAL_INGEST_PATH, "{}", { now });
     const second = await signInternalRequest(secret, INTERNAL_INGEST_PATH, "{}", { now });
     expect(first.get(INTERNAL_NONCE_HEADER)).not.toBe(second.get(INTERNAL_NONCE_HEADER));
+  });
+
+  it("binds the dedicated proof path without making it a checker signature", async () => {
+    const proof = await signInternalRequest(secret, INTERNAL_DOGFOOD_EVIDENCE_PATH, "{}", { now, nonce });
+    const claim = await signInternalRequest(secret, INTERNAL_CLAIM_PATH, "{}", { now, nonce });
+    expect(proof.get(INTERNAL_SIGNATURE_HEADER)).toMatch(/^[0-9a-f]{64}$/);
+    expect(proof.get(INTERNAL_SIGNATURE_HEADER)).not.toBe(claim.get(INTERNAL_SIGNATURE_HEADER));
   });
 
   it("rejects invalid signing inputs without echoing them", async () => {

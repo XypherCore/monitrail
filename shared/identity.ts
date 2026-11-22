@@ -3,6 +3,7 @@ const brandName = "Monitrail";
 export const identity = Object.freeze({
   brandName,
   brandOwner: "XypherCore",
+  sourceRepository: "https://github.com/XypherCore/monitrail",
   maintainerName: brandName,
   maintainerEmail: "dev@monitrail.invalid",
   monogram: brandName.charAt(0).toLowerCase(),

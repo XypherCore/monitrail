@@ -124,14 +124,22 @@ function parseBody<T>(body: Uint8Array<ArrayBuffer>, parse: (value: unknown) => 
   }
 }
 
-export function createInternalHandlers(dependencies: Dependencies) {
+export type SignedInternalDependencies = Pick<Dependencies, "secret" | "consumeNonce" | "now">;
+
+/** Authentication boundary for a fixed, named internal capability. */
+export function createSignedInternalHandler<T>(
+  dependencies: SignedInternalDependencies,
+  path: InternalPath,
+  operation: (body: Uint8Array<ArrayBuffer>) => Promise<T>,
+  afterSuccess?: () => void,
+) {
   const now = dependencies.now ?? (() => new Date());
   const current = (seconds: number) => {
     const instant = now().getTime() / 1000;
     return Number.isFinite(instant) && Math.abs(instant - seconds) <= INTERNAL_CLOCK_SKEW_SECONDS;
   };
 
-  async function handle(request: Request, path: InternalPath, operation: Operation): Promise<Response> {
+  return async function handle(request: Request): Promise<Response> {
     if (request.method !== "POST") {
       const response = fail(405);
       response.headers.set("allow", "POST");
@@ -152,15 +160,8 @@ export function createInternalHandlers(dependencies: Dependencies) {
       if (!timingSafeEqual(Buffer.from(digest), Buffer.from(signed.signature, "hex"))) return fail(401);
       if (!(await dependencies.consumeNonce(signed.nonce))) return fail(401);
       const response = Response.json(await operation(body), { headers: privateHeaders });
-      const delivery = path === INTERNAL_MAINTENANCE_PATH ? undefined : dependencies.delivery;
       try {
-        delivery?.afterResponse(async () => {
-          try {
-            await delivery.run();
-          } catch {
-            // A later signed claim can retry. Keep provider and database diagnostics private.
-          }
-        });
+        afterSuccess?.();
       } catch {
         // Scheduler failure cannot replace a committed check response.
       }
@@ -168,6 +169,26 @@ export function createInternalHandlers(dependencies: Dependencies) {
     } catch (error) {
       return fail(error instanceof RequestBodyError ? error.status : 503);
     }
+  };
+}
+
+/** Parse the existing bounded UTF-8 JSON body without returning raw errors. */
+export function parseSignedInternalBody<T>(body: Uint8Array<ArrayBuffer>, parse: (value: unknown) => T): T {
+  return parseBody(body, parse);
+}
+
+export function createInternalHandlers(dependencies: Dependencies) {
+  function handle(request: Request, path: InternalPath, operation: Operation): Promise<Response> {
+    const delivery = path === INTERNAL_MAINTENANCE_PATH ? undefined : dependencies.delivery;
+    return createSignedInternalHandler(dependencies, path, operation, () => {
+      delivery?.afterResponse(async () => {
+        try {
+          await delivery.run();
+        } catch {
+          // A later signed claim can retry. Keep provider and database diagnostics private.
+        }
+      });
+    })(request);
   }
 
   return {

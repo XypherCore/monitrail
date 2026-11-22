@@ -143,6 +143,12 @@ inserts. Global and per-host caps also take a global advisory lock. Tests
 fire concurrent creates and assert the cap holds.
 
 ## Internal API (signed; format in doc 02)
+- `POST /api/internal/dogfood-evidence` body `{}` uses the dedicated proof
+  export key and the existing nonce store. It returns only the scoped
+  read-only proof projection for two server-configured monitor IDs over
+  the last 24 database-clock hours. It accepts no caller-selected IDs or
+  time bounds. The collector encrypts the projection before storage. No
+  tables or retention periods change for this export.
 - `POST /api/internal/claim` body `{max: 15}`. Atomically claims due monitors:
   ```sql
   WITH due AS (

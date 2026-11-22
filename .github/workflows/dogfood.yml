@@ -1,0 +1,46 @@
+name: Encrypted dogfood evidence
+
+on:
+  schedule:
+    - cron: "43 2,14 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  capture:
+    if: ${{ (vars.DOGFOOD_ENABLED == 'true' && vars.APP_URL != '') || github.event_name == 'workflow_dispatch' }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 3
+    steps:
+      - name: Check out the fixed collector
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          sparse-checkout: |
+            scripts
+            shared
+          sparse-checkout-cone-mode: true
+      - name: Set up the project Node version
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: "24.12.0"
+          package-manager-cache: false
+      - name: Capture and encrypt private evidence
+        env:
+          APP_URL: ${{ vars.APP_URL }}
+          DOGFOOD_EXPORT_HMAC_SECRET: ${{ secrets.DOGFOOD_EXPORT_HMAC_SECRET }}
+          DOGFOOD_PROOF_KEY: ${{ secrets.DOGFOOD_PROOF_KEY }}
+          DOGFOOD_PROOF_KEY_ID: ${{ vars.DOGFOOD_PROOF_KEY_ID || 'proof-1' }}
+        run: node scripts/capture-dogfood.mjs --output "$RUNNER_TEMP/dogfood-evidence.enc"
+      - name: Store encrypted evidence only
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: dogfood-evidence-encrypted-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/dogfood-evidence.enc
+          retention-days: 30
+          compression-level: 0
+          if-no-files-found: error
+          overwrite: false
+          include-hidden-files: false

@@ -122,6 +122,14 @@ first, then the code.
   across the fleet. Slots intersecting a pause are excluded. Configuration
   changes restart the run. The human first-monitor timer stops at the
   first healthy result. These measurement rules do not change scheduling.
+- **Automatic proof capture**: the owner approved encrypted GitHub Actions
+  snapshots so collection continues while the operator's laptop is off.
+  A separate signed read-only endpoint exports only two configured
+  monitors over a server-owned 24-hour window. Database credentials stay
+  out of GitHub. The proof encryption key stays out of Vercel. GitHub
+  receives the encryption key and dedicated export key. The web runtime
+  receives the dedicated export key and selected IDs. Snapshots are
+  encrypted before artifact upload.
 
 ## Modified rather than adopted as written
 - Rollups: removed entirely for v1 (30-day raw retention covers every window),
