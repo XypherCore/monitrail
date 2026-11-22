@@ -32,8 +32,10 @@ healthy result.
   framework and Node 24 runtime. The domain was verified. Its previous
   private-address DNS record requires replacement with Vercel's recommended
   public address before hosted acceptance.
-- Created the private production check queue. The Worker has not yet been
-  deployed. Its public and preview endpoints remain disabled in config.
+- Created the private production check queue. The tested Worker was
+  deployed with both schedules and Queue bindings. Its public and preview
+  endpoints remain disabled. Version
+  `9322d90b-c03a-452a-9149-4dee96b12046` awaits signing-key connection.
 - The owner reported DNS and OAuth dashboard changes complete and ran the
   reviewed production settings upload successfully. The dedicated proof
   keys were then prepared and uploaded through the same owner-only
@@ -55,8 +57,8 @@ healthy result.
   and the proof encryption key never enters Vercel.
 - Initial local regression checks passed 886 tests, lint, type checking,
   the Worker dry-run build, secret scans and the dependency audit. Further
-  signing, registration and encrypted-capture changes require the final
-  combined rerun, currently in progress.
+  signing, registration and encrypted-capture changes are covered by the
+  final combined run below.
 - The final combined run passed lint, both type checks, 541 web tests,
   377 checker tests, 14 independent probe/crypto/collector tests and seven
   native Worker tests, 939 total. The Worker dry-run bundle and isolated
@@ -72,6 +74,10 @@ healthy result.
   diagnostic full run passed. The subsequent retry copied an unfinished
   module during concurrent work and stopped at build. The final run uses
   the completed source.
+- Vercel rejected the first source submission because its current schema
+  no longer accepts the documented legacy `public` property. Removed that
+  property before retrying. The CLI's source/log privacy defaults remain
+  in use. No application timeout or security policy changed for this fix.
 
 ## Open completion checks
 

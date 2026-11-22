@@ -3,6 +3,5 @@
   "framework": "nextjs",
   "fluid": true,
   "buildCommand": "npm run build",
-  "installCommand": "npm ci --ignore-scripts --no-fund",
-  "public": false
+  "installCommand": "npm ci --ignore-scripts --no-fund"
 }
