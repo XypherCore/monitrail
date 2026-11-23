@@ -22,6 +22,7 @@ type ServiceSettings = {
   botToken?: string;
   webhookSecret?: string;
   adminUrl?: string;
+  databaseOptions?: ReturnType<typeof postgresOptions>;
 };
 export type WranglerInvocation = {
   executable: string;
@@ -32,6 +33,7 @@ export type WranglerInvocation = {
 };
 type Registration = { register(): Promise<unknown>; close(): Promise<void> };
 type Dependencies = {
+  environment: Environment;
   readConfiguration(file: URL): Promise<{ content: string }>;
   readWorkerConfiguration(file: URL): Promise<string>;
   execute(command: WranglerInvocation): Promise<string>;
@@ -44,6 +46,43 @@ const productionFile = new URL("../../.env.production.local", import.meta.url);
 const workerFile = new URL("../../../checker/wrangler.jsonc", import.meta.url);
 const workerName = `${identity.brandName.toLowerCase()}-checker`;
 const invalid = () => new Error("Service connection settings are invalid.");
+const failureMessages = {
+  arguments: "Production service connection failed while validating the requested operations.",
+  configuration: "Production service connection failed while reading or validating local production settings.",
+  "worker-configuration": "Production service connection failed while validating the trusted Worker settings.",
+  "checker-metadata": "Production service connection failed while reading the existing Worker's secret metadata.",
+  "checker-upload": "Production service connection failed while uploading the checker signing key.",
+  "telegram-database": "Production service connection failed while opening the Telegram database connection.",
+  "telegram-webhook": "Production service connection failed while registering the Telegram webhook.",
+  "telegram-cleanup": "Production service connection failed while closing the Telegram database connection.",
+} as const;
+type FailureStage = keyof typeof failureMessages;
+const completedOperationLabels = {
+  "checker-key-upload": "checker signing key upload",
+  "telegram-webhook-registration": "Telegram webhook registration",
+} as const;
+type CompletedOperation = keyof typeof completedOperationLabels;
+
+export class ServiceConnectionError extends Error {
+  readonly stage: FailureStage;
+  readonly completedOperations: readonly CompletedOperation[];
+
+  constructor(stage: FailureStage, completedOperations: readonly CompletedOperation[]) {
+    super("Service connection failed.");
+    this.stage = stage;
+    this.completedOperations = Object.freeze([...completedOperations]);
+  }
+}
+
+/** Display only fixed labels. Provider exceptions and configuration never reach this boundary. */
+export function serviceConnectionFailureMessage(error: unknown): string {
+  const privacy = "No secret values or raw errors were displayed.";
+  if (!(error instanceof ServiceConnectionError) || !Object.hasOwn(failureMessages, error.stage)) return `Production service connection failed. ${privacy}`;
+  const completed = error.completedOperations
+    .filter((operation) => Object.hasOwn(completedOperationLabels, operation))
+    .map((operation) => completedOperationLabels[operation]);
+  return `${failureMessages[error.stage]} Completed operations: ${completed.join(", ") || "none"}. ${privacy}`;
+}
 
 export function parseConnectArguments(args: readonly string[]): Operation {
   if (!args.length || new Set(args).size !== args.length ||
@@ -123,13 +162,22 @@ async function executeWrangler(command: WranglerInvocation): Promise<string> {
   return output;
 }
 
-/** A local administrative read capability, never a user-DAL ownership bypass. */
-async function telegramRegistration(settings: ServiceSettings, saved: Environment): Promise<Registration> {
-  if (!settings.adminUrl || !settings.botToken || !settings.webhookSecret) throw invalid();
+function telegramDatabaseOptions(saved: Environment, ambient: Environment) {
+  for (const environment of ambient === process.env ? [ambient] : [ambient, process.env]) {
+    for (const key of ["DATABASE_CA_FILE", "DATABASE_CA_PEM"] as const) {
+      if (environment[key] !== undefined && environment[key] !== saved[key]) throw invalid();
+    }
+  }
   const fallback = resolve(web, ".certs/supabase-ca.crt");
   const caFile = saved.DATABASE_CA_FILE !== undefined ? resolve(web, saved.DATABASE_CA_FILE) :
     saved.DATABASE_CA_PEM === undefined && existsSync(fallback) ? fallback : undefined;
-  const client = postgres(settings.adminUrl, postgresOptions(caFile, saved.DATABASE_CA_PEM));
+  return postgresOptions(caFile, saved.DATABASE_CA_PEM);
+}
+
+/** A local administrative read capability, never a user-DAL ownership bypass. */
+async function telegramRegistration(settings: ServiceSettings, _saved: Environment): Promise<Registration> {
+  if (!settings.adminUrl || !settings.botToken || !settings.webhookSecret || !settings.databaseOptions) throw invalid();
+  const client = postgres(settings.adminUrl, settings.databaseOptions);
   try {
     await client`SELECT 1`;
     const guard = createWebGuard({
@@ -154,34 +202,50 @@ async function telegramRegistration(settings: ServiceSettings, saved: Environmen
 
 /** Run by the owner locally after deployment. It never sends an alert message. */
 export async function connectServices(args: readonly string[], dependencies: Partial<Dependencies> = {}): Promise<void> {
+  let stage: FailureStage = "arguments";
+  const completedOperations: CompletedOperation[] = [];
   try {
     const operation = parseConnectArguments(args);
+    const ambient = dependencies.environment ?? process.env;
+    stage = "configuration";
     const { content } = await (dependencies.readConfiguration ?? readPrivateConfiguration)(productionFile);
     const saved = parseEnv(content);
-    for (const key of ["DATABASE_URL", "APP_URL", "INTERNAL_HMAC_SECRET", "MIGRATION_DATABASE_URL", "TELEGRAM_BOT_TOKEN", "TELEGRAM_WEBHOOK_SECRET", "TELEGRAM_BOT_USERNAME"]) {
+    for (const key of ["DATABASE_URL", "DATABASE_CA_FILE", "DATABASE_CA_PEM", "APP_URL", "INTERNAL_HMAC_SECRET", "MIGRATION_DATABASE_URL", "TELEGRAM_BOT_TOKEN", "TELEGRAM_WEBHOOK_SECRET", "TELEGRAM_BOT_USERNAME"]) {
       if ((content.match(new RegExp(`^[ \\t]*(?:export[ \\t]+)?${key}[ \\t]*=`, "gm")) ?? []).length > 1) throw invalid();
     }
     const settings = readServiceConnectionSettings(saved, operation);
+    if (operation.registerTelegram) settings.databaseOptions = telegramDatabaseOptions(saved, ambient);
     if (operation.uploadCheckerKey) {
+      stage = "worker-configuration";
       const worker = JSON.parse(await (dependencies.readWorkerConfiguration ?? ((file: URL) => readFile(file, "utf8")))(workerFile));
       if (worker.name !== workerName || worker.workers_dev !== false || worker.preview_urls !== false || worker.vars?.APP_URL !== settings.origin) throw invalid();
     }
-    let registration: Registration | undefined;
-    try {
-      if (operation.registerTelegram) registration = await (dependencies.registration ?? telegramRegistration)(settings, saved);
-      if (operation.uploadCheckerKey) {
-        const [list, put] = checkerKeyCommands(settings.signingKey);
-        const execute = dependencies.execute ?? executeWrangler;
-        const existing: unknown = JSON.parse(await execute(list));
-        if (!Array.isArray(existing) || existing.some((secret) => !secret || typeof secret.name !== "string" || secret.type !== "secret_text")) throw invalid();
-        await execute(put);
+    if (operation.uploadCheckerKey) {
+      const [list, put] = checkerKeyCommands(settings.signingKey, ambient);
+      const execute = dependencies.execute ?? executeWrangler;
+      stage = "checker-metadata";
+      const existing: unknown = JSON.parse(await execute(list));
+      if (!Array.isArray(existing) || existing.some((secret) => !secret || typeof secret.name !== "string" || secret.type !== "secret_text")) throw invalid();
+      stage = "checker-upload";
+      await execute(put);
+      completedOperations.push("checker-key-upload");
+    }
+    if (operation.registerTelegram) {
+      stage = "telegram-database";
+      const registration = await (dependencies.registration ?? telegramRegistration)(settings, saved);
+      try {
+        stage = "telegram-webhook";
+        await registration.register();
+        completedOperations.push("telegram-webhook-registration");
+      } catch {
+        await registration.close().catch(() => {});
+        throw new Error();
       }
-      if (registration) await registration.register();
-    } finally {
-      await registration?.close();
+      stage = "telegram-cleanup";
+      await registration.close();
     }
   } catch {
-    throw new Error("Service connection failed.");
+    throw new ServiceConnectionError(stage, completedOperations);
   }
 }
 
@@ -189,8 +253,8 @@ if (process.argv[1] && pathToFileURL(resolve(process.argv[1])).href === import.m
   try {
     await connectServices(process.argv.slice(2));
     console.log("Requested production service connections completed. No secret values were displayed.");
-  } catch {
-    console.error("Production service connection failed. Check the local production settings, existing Worker and provider access privately. No secret values or raw errors were displayed.");
+  } catch (error) {
+    console.error(serviceConnectionFailureMessage(error));
     process.exitCode = 1;
   }
 }

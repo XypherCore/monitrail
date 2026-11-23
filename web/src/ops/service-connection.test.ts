@@ -1,10 +1,13 @@
-import { describe, expect, it, vi } from "vitest";
+import { getCACertificates } from "node:tls";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { identity } from "../../../shared/identity.ts";
 import {
   checkerKeyCommands,
   connectServices,
   parseConnectArguments,
   readServiceConnectionSettings,
+  serviceConnectionFailureMessage,
+  ServiceConnectionError,
   type WranglerInvocation,
 } from "../../scripts/deploy/connect-services.ts";
 import { serializePrivateEnvironment } from "./production-environment.ts";
@@ -30,10 +33,16 @@ function fixtures(values: Record<string, string> = settings) {
   }));
   const execute = vi.fn(async (command: WranglerInvocation): Promise<string> => command.args.includes("list") ? "[]" : "");
   const registration = vi.fn(async () => ({ register, close }));
-  return { dependencies: { readConfiguration, readWorkerConfiguration, execute, registration }, register, close };
+  return { dependencies: { readConfiguration, readWorkerConfiguration, execute, registration, environment: {} as Record<string, string | undefined> }, register, close };
 }
 
 describe("owner-only production service connections", () => {
+  beforeEach(() => {
+    vi.stubEnv("DATABASE_CA_FILE", undefined);
+    vi.stubEnv("DATABASE_CA_PEM", undefined);
+  });
+  afterEach(() => vi.unstubAllEnvs());
+
   it("requires at least one exact explicit operation and refuses extra input", () => {
     expect(parseConnectArguments(["--upload-checker-key"])).toEqual({ uploadCheckerKey: true, registerTelegram: false });
     expect(parseConnectArguments(["--register-telegram", "--upload-checker-key"])).toEqual({ uploadCheckerKey: true, registerTelegram: true });
@@ -82,11 +91,21 @@ describe("owner-only production service connections", () => {
     }
   });
 
-  it("verifies the existing checker before uploading and then registers Telegram", async () => {
+  it("uploads the verified checker key before opening Telegram's database or registering its webhook", async () => {
     const f = fixtures();
+    const order: string[] = [];
+    f.dependencies.execute.mockImplementation(async (command) => {
+      order.push(command.args.includes("list") ? "metadata" : "upload");
+      return command.args.includes("list") ? "[]" : "";
+    });
+    f.dependencies.registration.mockImplementation(async () => {
+      order.push("telegram-database");
+      return { register: f.register, close: f.close };
+    });
     const logger = vi.spyOn(console, "log").mockImplementation(() => {});
     try {
       await connectServices(["--upload-checker-key", "--register-telegram"], f.dependencies);
+      expect(order).toEqual(["metadata", "upload", "telegram-database"]);
       expect(f.dependencies.execute).toHaveBeenCalledTimes(2);
       expect(f.dependencies.registration).toHaveBeenCalledOnce();
       expect(f.register).toHaveBeenCalledOnce();
@@ -121,15 +140,91 @@ describe("owner-only production service connections", () => {
     expect(f.register).not.toHaveBeenCalled();
   });
 
-  it("refuses malformed Worker metadata before key upload and closes the registration connection", async () => {
+  it("refuses malformed Worker metadata before key upload or any Telegram database connection", async () => {
     for (const output of ["", "not-json", "{}", '[{"name":"OTHER","type":"plain_text"}]']) {
       const f = fixtures();
       f.dependencies.execute.mockResolvedValueOnce(output);
       await expect(connectServices(["--upload-checker-key", "--register-telegram"], f.dependencies)).rejects.toThrow("Service connection failed.");
       expect(f.dependencies.execute).toHaveBeenCalledOnce();
       expect(f.register).not.toHaveBeenCalled();
-      expect(f.close).toHaveBeenCalledOnce();
+      expect(f.dependencies.registration).not.toHaveBeenCalled();
+      expect(f.close).not.toHaveBeenCalled();
     }
+  });
+
+  it.each(["DATABASE_CA_FILE", "DATABASE_CA_PEM"] as const)("rejects a conflicting ambient %s before requested external mutations", async (key) => {
+    const f = fixtures();
+    f.dependencies.environment[key] = "private-staging-ca-must-not-be-used";
+    const error = await connectServices(["--upload-checker-key", "--register-telegram"], f.dependencies).catch((failure) => failure);
+    expect(error).toMatchObject({ message: "Service connection failed.", stage: "configuration", completedOperations: [] });
+    expect(f.dependencies.execute).not.toHaveBeenCalled();
+    expect(f.dependencies.registration).not.toHaveBeenCalled();
+    expect(serviceConnectionFailureMessage(error)).not.toContain("private-staging");
+  });
+
+  it("accepts matching saved and ambient CA settings while preserving strict TLS", async () => {
+    const ca = getCACertificates()[0];
+    const f = fixtures({ ...settings, DATABASE_CA_PEM: ca });
+    f.dependencies.environment.DATABASE_CA_PEM = ca;
+    await connectServices(["--upload-checker-key", "--register-telegram"], f.dependencies);
+    expect(f.dependencies.registration).toHaveBeenCalledWith(expect.objectContaining({ databaseOptions: expect.objectContaining({ ssl: expect.objectContaining({ rejectUnauthorized: true }) }) }), expect.objectContaining({ DATABASE_CA_PEM: ca }));
+  });
+
+  it("rejects an invalid saved TLS source before uploading the checker key", async () => {
+    const f = fixtures({ ...settings, DATABASE_CA_PEM: "private-invalid-certificate-fixture" });
+    const error = await connectServices(["--upload-checker-key", "--register-telegram"], f.dependencies).catch((failure) => failure);
+    expect(error).toMatchObject({ stage: "configuration", completedOperations: [] });
+    expect(f.dependencies.execute).not.toHaveBeenCalled();
+    expect(f.dependencies.registration).not.toHaveBeenCalled();
+    expect(serviceConnectionFailureMessage(error)).not.toContain("private-invalid");
+  });
+
+  it("does not consult Telegram database or CA settings for a checker-only operation", async () => {
+    const f = fixtures();
+    f.dependencies.environment.DATABASE_CA_FILE = "unrelated-local-fixture.crt";
+    await connectServices(["--upload-checker-key"], f.dependencies);
+    expect(f.dependencies.execute).toHaveBeenCalledTimes(2);
+    expect(f.dependencies.registration).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    ["arguments", [], []],
+    ["configuration", ["--upload-checker-key", "--register-telegram"], []],
+    ["worker-configuration", ["--upload-checker-key", "--register-telegram"], []],
+    ["checker-metadata", ["--upload-checker-key", "--register-telegram"], []],
+    ["checker-upload", ["--upload-checker-key", "--register-telegram"], []],
+    ["telegram-database", ["--upload-checker-key", "--register-telegram"], ["checker-key-upload"]],
+    ["telegram-webhook", ["--upload-checker-key", "--register-telegram"], ["checker-key-upload"]],
+    ["telegram-cleanup", ["--upload-checker-key", "--register-telegram"], ["checker-key-upload", "telegram-webhook-registration"]],
+  ] as const)("reports only an allowlisted stage and completed operations after %s failure", async (stage, args, completedOperations) => {
+    const f = fixtures();
+    const privateError = new Error("private-provider-token-and-url-detail");
+    if (stage === "configuration") f.dependencies.readConfiguration.mockRejectedValueOnce(privateError);
+    if (stage === "worker-configuration") f.dependencies.readWorkerConfiguration.mockRejectedValueOnce(privateError);
+    if (stage === "checker-metadata") f.dependencies.execute.mockRejectedValueOnce(privateError);
+    if (stage === "checker-upload") f.dependencies.execute.mockResolvedValueOnce("[]").mockRejectedValueOnce(privateError);
+    if (stage === "telegram-database") f.dependencies.registration.mockRejectedValueOnce(privateError);
+    if (stage === "telegram-webhook") f.register.mockRejectedValueOnce(privateError);
+    if (stage === "telegram-cleanup") f.close.mockRejectedValueOnce(privateError);
+    const error = await connectServices(args, f.dependencies).catch((failure) => failure);
+    expect(error).toBeInstanceOf(ServiceConnectionError);
+    expect(error).toMatchObject({ message: "Service connection failed.", stage, completedOperations });
+    expect(error.cause).toBeUndefined();
+    const display = serviceConnectionFailureMessage(error);
+    expect(display).not.toContain("private-provider");
+    expect(display).not.toContain("https:");
+    expect(JSON.stringify(error)).not.toContain("private-provider");
+    if (completedOperations.some((operation) => operation === "checker-key-upload")) expect(display).toContain("checker signing key upload");
+    if (stage === "telegram-webhook" || stage === "telegram-cleanup") expect(f.close).toHaveBeenCalledOnce();
+    if (["checker-metadata", "checker-upload"].includes(stage)) expect(f.dependencies.registration).not.toHaveBeenCalled();
+  });
+
+  it("uses fixed public messages for unknown errors and never stringifies their private content", () => {
+    const error = { message: "private-provider-detail", toString: vi.fn(() => "private-provider-detail") };
+    const display = serviceConnectionFailureMessage(error);
+    expect(display).toContain("Production service connection failed.");
+    expect(display).not.toContain("private-provider-detail");
+    expect(error.toString).not.toHaveBeenCalled();
   });
 
   it("refuses mismatched trusted Worker settings and duplicate private entries before external mutations", async () => {
