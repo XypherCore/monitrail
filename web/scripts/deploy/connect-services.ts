@@ -1,6 +1,7 @@
 import { spawn } from "node:child_process";
-import { existsSync } from "node:fs";
-import { readFile } from "node:fs/promises";
+import { X509Certificate } from "node:crypto";
+import { constants, existsSync, readFileSync } from "node:fs";
+import { open, readFile } from "node:fs/promises";
 import { resolve } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { parseEnv } from "node:util";
@@ -10,7 +11,7 @@ import { parseWebhookTarget } from "../../../shared/ssrf/address.ts";
 import { isBlockedHost } from "../../../shared/ssrf/blocklist.ts";
 import { isTelegramWebhookSecret } from "../../src/alerts/channel-input.ts";
 import { isTelegramBotToken } from "../../src/alerts/telegram-target.ts";
-import { postgresOptions, postgresProject, readPostgresUrl, readRuntimePostgresUrl } from "../../src/db/postgres-config.ts";
+import { postgresOptions, postgresProject, readPostgresUrl, readRuntimePostgresUrl, validateDatabaseCaPem } from "../../src/db/postgres-config.ts";
 import { createWebGuard } from "../../src/security/web-ssrf.ts";
 import { readPrivateConfiguration } from "./configure-production.ts";
 
@@ -62,6 +63,14 @@ const completedOperationLabels = {
   "telegram-webhook-registration": "Telegram webhook registration",
 } as const;
 type CompletedOperation = keyof typeof completedOperationLabels;
+const protectedSettings = ["DATABASE_URL", "DATABASE_CA_FILE", "DATABASE_CA_PEM", "APP_URL", "INTERNAL_HMAC_SECRET", "MIGRATION_DATABASE_URL", "TELEGRAM_BOT_TOKEN", "TELEGRAM_WEBHOOK_SECRET", "TELEGRAM_BOT_USERNAME"] as const;
+const settingChecks = [
+  "PRODUCTION_FILE", "DUPLICATE_SETTINGS", "DATABASE_URL", "APP_URL", "INTERNAL_HMAC_SECRET",
+  "TELEGRAM_BOT_TOKEN", "TELEGRAM_BOT_USERNAME", "TELEGRAM_WEBHOOK_SECRET", "MIGRATION_DATABASE_URL",
+  "DATABASE_CA_SOURCE", "DATABASE_CA_AMBIENT", "WORKER_CONFIGURATION",
+] as const;
+type SettingName = typeof settingChecks[number];
+type SettingCheck = { setting: SettingName; ok: boolean };
 
 export class ServiceConnectionError extends Error {
   readonly stage: FailureStage;
@@ -94,24 +103,49 @@ function validSigningKey(value: unknown): value is string {
   return typeof value === "string" && value.length >= 32 && value.trim() === value && !/[\r\n\0]/.test(value);
 }
 
+function readServiceOrigin(value: string | undefined): string {
+  if (!value || parseWebhookTarget(`${value}/api/telegram/webhook`, "webhook").origin !== value) throw invalid();
+  return value;
+}
+
+function validBotUsername(value: string | undefined): boolean {
+  return /^[A-Za-z0-9_]{5,32}$/.test(value ?? "");
+}
+
+function readMigrationDatabaseUrl(env: Environment): string {
+  const runtime = readRuntimePostgresUrl(env.DATABASE_URL);
+  const adminUrl = readPostgresUrl(env.MIGRATION_DATABASE_URL);
+  const admin = new URL(adminUrl);
+  const project = postgresProject(runtime);
+  if (postgresProject(adminUrl) !== project || admin.pathname !== new URL(runtime).pathname ||
+    !["", "5432"].includes(admin.port) ||
+    decodeURIComponent(admin.username) !== (admin.hostname.endsWith(".pooler.supabase.com") ? `postgres.${project}` : "postgres")) throw invalid();
+  return adminUrl;
+}
+
+function assertNoDuplicateSettings(content: string) {
+  for (const key of protectedSettings) {
+    if ((content.match(new RegExp(`^[ \\t]*(?:export[ \\t]+)?${key}[ \\t]*=`, "gm")) ?? []).length > 1) throw invalid();
+  }
+}
+
+function assertTrustedWorkerConfiguration(content: string, origin: string) {
+  const worker = JSON.parse(content);
+  if (worker.name !== workerName || worker.workers_dev !== false || worker.preview_urls !== false || worker.vars?.APP_URL !== origin) throw invalid();
+}
+
 export function readServiceConnectionSettings(env: Environment, operation: Operation): ServiceSettings {
   try {
-    const runtime = readRuntimePostgresUrl(env.DATABASE_URL);
-    const origin = env.APP_URL;
-    if (!origin || parseWebhookTarget(`${origin}/api/telegram/webhook`, "webhook").origin !== origin ||
-      !validSigningKey(env.INTERNAL_HMAC_SECRET)) throw invalid();
+    readRuntimePostgresUrl(env.DATABASE_URL);
+    const origin = readServiceOrigin(env.APP_URL);
+    if (!validSigningKey(env.INTERNAL_HMAC_SECRET)) throw invalid();
     const telegram = [env.TELEGRAM_BOT_TOKEN, env.TELEGRAM_WEBHOOK_SECRET, env.TELEGRAM_BOT_USERNAME];
     if ((operation.registerTelegram || telegram.some((value) => value !== undefined)) &&
       (!isTelegramBotToken(env.TELEGRAM_BOT_TOKEN) || !isTelegramWebhookSecret(env.TELEGRAM_WEBHOOK_SECRET) ||
-        !/^[A-Za-z0-9_]{5,32}$/.test(env.TELEGRAM_BOT_USERNAME ?? ""))) throw invalid();
+        !validBotUsername(env.TELEGRAM_BOT_USERNAME))) throw invalid();
     let adminUrl: string | undefined;
     if (operation.registerTelegram) {
-      adminUrl = readPostgresUrl(env.MIGRATION_DATABASE_URL);
-      const admin = new URL(adminUrl);
-      const project = postgresProject(runtime);
-      if (postgresProject(adminUrl) !== project || admin.pathname !== new URL(runtime).pathname ||
-        !["", "5432"].includes(admin.port) ||
-        decodeURIComponent(admin.username) !== (admin.hostname.endsWith(".pooler.supabase.com") ? `postgres.${project}` : "postgres")) throw invalid();
+      adminUrl = readMigrationDatabaseUrl(env);
     }
     return { origin, signingKey: env.INTERNAL_HMAC_SECRET, botToken: env.TELEGRAM_BOT_TOKEN, webhookSecret: env.TELEGRAM_WEBHOOK_SECRET, adminUrl };
   } catch {
@@ -162,16 +196,78 @@ async function executeWrangler(command: WranglerInvocation): Promise<string> {
   return output;
 }
 
-function telegramDatabaseOptions(saved: Environment, ambient: Environment) {
+function assertNoAmbientCaOverrides(saved: Environment, ambient: Environment) {
   for (const environment of ambient === process.env ? [ambient] : [ambient, process.env]) {
     for (const key of ["DATABASE_CA_FILE", "DATABASE_CA_PEM"] as const) {
       if (environment[key] !== undefined && environment[key] !== saved[key]) throw invalid();
     }
   }
+}
+
+function databaseCaFile(saved: Environment) {
   const fallback = resolve(web, ".certs/supabase-ca.crt");
-  const caFile = saved.DATABASE_CA_FILE !== undefined ? resolve(web, saved.DATABASE_CA_FILE) :
+  return saved.DATABASE_CA_FILE !== undefined ? resolve(web, saved.DATABASE_CA_FILE) :
     saved.DATABASE_CA_PEM === undefined && existsSync(fallback) ? fallback : undefined;
-  return postgresOptions(caFile, saved.DATABASE_CA_PEM);
+}
+
+function assertValidDatabaseCaSource(saved: Environment) {
+  if (saved.DATABASE_CA_PEM !== undefined) {
+    if (saved.DATABASE_CA_FILE !== undefined) throw invalid();
+    validateDatabaseCaPem(saved.DATABASE_CA_PEM);
+  } else {
+    const file = databaseCaFile(saved);
+    if (file !== undefined && !new X509Certificate(readFileSync(file)).ca) throw invalid();
+  }
+}
+
+function telegramDatabaseOptions(saved: Environment, ambient: Environment) {
+  assertNoAmbientCaOverrides(saved, ambient);
+  assertValidDatabaseCaSource(saved);
+  return postgresOptions(databaseCaFile(saved), saved.DATABASE_CA_PEM);
+}
+
+/** Audit reads must not change file permissions or follow a private-file symlink. */
+export async function readOnlyPrivateConfiguration(file: URL): Promise<{ content: string }> {
+  try {
+    const handle = await open(file, constants.O_RDONLY | constants.O_NOFOLLOW);
+    try {
+      const info = await handle.stat();
+      if (!info.isFile() || info.size > 262_144 || (info.mode & 0o077) !== 0 || (process.getuid && info.uid !== process.getuid())) throw invalid();
+      return { content: await handle.readFile("utf8") };
+    } finally { await handle.close(); }
+  } catch { throw invalid(); }
+}
+
+/** Read-only local validation. No database, provider, Wrangler or target requests occur. */
+export async function checkServiceSettings(dependencies: Partial<Dependencies> = {}): Promise<SettingCheck[]> {
+  const checks = settingChecks.map((setting) => ({ setting, ok: false }));
+  const check = (setting: SettingName, validate: () => unknown) => {
+    try {
+      validate();
+      const result = checks.find((entry) => entry.setting === setting);
+      if (result) result.ok = true;
+    } catch { /* A failed check exposes only its fixed name and boolean result. */ }
+  };
+  try {
+    const { content } = await (dependencies.readConfiguration ?? readOnlyPrivateConfiguration)(productionFile);
+    check("PRODUCTION_FILE", () => {});
+    const saved = parseEnv(content);
+    check("DUPLICATE_SETTINGS", () => assertNoDuplicateSettings(content));
+    check("DATABASE_URL", () => readRuntimePostgresUrl(saved.DATABASE_URL));
+    check("APP_URL", () => readServiceOrigin(saved.APP_URL));
+    check("INTERNAL_HMAC_SECRET", () => { if (!validSigningKey(saved.INTERNAL_HMAC_SECRET)) throw invalid(); });
+    check("TELEGRAM_BOT_TOKEN", () => { if (!isTelegramBotToken(saved.TELEGRAM_BOT_TOKEN)) throw invalid(); });
+    check("TELEGRAM_BOT_USERNAME", () => { if (!validBotUsername(saved.TELEGRAM_BOT_USERNAME)) throw invalid(); });
+    check("TELEGRAM_WEBHOOK_SECRET", () => { if (!isTelegramWebhookSecret(saved.TELEGRAM_WEBHOOK_SECRET)) throw invalid(); });
+    check("MIGRATION_DATABASE_URL", () => readMigrationDatabaseUrl(saved));
+    check("DATABASE_CA_SOURCE", () => assertValidDatabaseCaSource(saved));
+    check("DATABASE_CA_AMBIENT", () => assertNoAmbientCaOverrides(saved, dependencies.environment ?? process.env));
+    try {
+      const worker = await (dependencies.readWorkerConfiguration ?? ((file: URL) => readFile(file, "utf8")))(workerFile);
+      check("WORKER_CONFIGURATION", () => assertTrustedWorkerConfiguration(worker, readServiceOrigin(saved.APP_URL)));
+    } catch { /* Local read errors are deliberately not retained. */ }
+  } catch { /* No private exception or configuration value leaves the audit. */ }
+  return checks;
 }
 
 /** A local administrative read capability, never a user-DAL ownership bypass. */
@@ -210,15 +306,13 @@ export async function connectServices(args: readonly string[], dependencies: Par
     stage = "configuration";
     const { content } = await (dependencies.readConfiguration ?? readPrivateConfiguration)(productionFile);
     const saved = parseEnv(content);
-    for (const key of ["DATABASE_URL", "DATABASE_CA_FILE", "DATABASE_CA_PEM", "APP_URL", "INTERNAL_HMAC_SECRET", "MIGRATION_DATABASE_URL", "TELEGRAM_BOT_TOKEN", "TELEGRAM_WEBHOOK_SECRET", "TELEGRAM_BOT_USERNAME"]) {
-      if ((content.match(new RegExp(`^[ \\t]*(?:export[ \\t]+)?${key}[ \\t]*=`, "gm")) ?? []).length > 1) throw invalid();
-    }
+    assertNoDuplicateSettings(content);
     const settings = readServiceConnectionSettings(saved, operation);
     if (operation.registerTelegram) settings.databaseOptions = telegramDatabaseOptions(saved, ambient);
     if (operation.uploadCheckerKey) {
       stage = "worker-configuration";
-      const worker = JSON.parse(await (dependencies.readWorkerConfiguration ?? ((file: URL) => readFile(file, "utf8")))(workerFile));
-      if (worker.name !== workerName || worker.workers_dev !== false || worker.preview_urls !== false || worker.vars?.APP_URL !== settings.origin) throw invalid();
+      const worker = await (dependencies.readWorkerConfiguration ?? ((file: URL) => readFile(file, "utf8")))(workerFile);
+      assertTrustedWorkerConfiguration(worker, settings.origin);
     }
     if (operation.uploadCheckerKey) {
       const [list, put] = checkerKeyCommands(settings.signingKey, ambient);
@@ -249,10 +343,25 @@ export async function connectServices(args: readonly string[], dependencies: Par
   }
 }
 
+/** Audit is an exact, isolated CLI mode; it cannot be combined with connection operations. */
+export async function runServiceConnectionCommand(
+  args: readonly string[],
+  dependencies: Partial<Dependencies> = {},
+  output: (line: string) => void = console.log,
+): Promise<boolean> {
+  if (args.length === 1 && args[0] === "--check-settings") {
+    const checks = await checkServiceSettings(dependencies);
+    for (const { setting, ok } of checks) output(`${setting}: ${ok ? "PASS" : "FAIL"}`);
+    return checks.every((check) => check.ok);
+  }
+  await connectServices(args, dependencies);
+  output("Requested production service connections completed. No secret values were displayed.");
+  return true;
+}
+
 if (process.argv[1] && pathToFileURL(resolve(process.argv[1])).href === import.meta.url) {
   try {
-    await connectServices(process.argv.slice(2));
-    console.log("Requested production service connections completed. No secret values were displayed.");
+    if (!await runServiceConnectionCommand(process.argv.slice(2))) process.exitCode = 1;
   } catch (error) {
     console.error(serviceConnectionFailureMessage(error));
     process.exitCode = 1;

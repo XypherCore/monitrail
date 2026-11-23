@@ -1,11 +1,18 @@
+import { chmod, mkdtemp, rm, stat, symlink, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { getCACertificates } from "node:tls";
+import { pathToFileURL } from "node:url";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { identity } from "../../../shared/identity.ts";
 import {
   checkerKeyCommands,
+  checkServiceSettings,
   connectServices,
   parseConnectArguments,
   readServiceConnectionSettings,
+  readOnlyPrivateConfiguration,
+  runServiceConnectionCommand,
   serviceConnectionFailureMessage,
   ServiceConnectionError,
   type WranglerInvocation,
@@ -22,6 +29,11 @@ const settings = {
   TELEGRAM_BOT_USERNAME: "FixtureMonitorBot",
   TELEGRAM_WEBHOOK_SECRET: "fixture_webhook_secret_that_is_not_a_real_secret",
 };
+const settingNames = [
+  "PRODUCTION_FILE", "DUPLICATE_SETTINGS", "DATABASE_URL", "APP_URL", "INTERNAL_HMAC_SECRET",
+  "TELEGRAM_BOT_TOKEN", "TELEGRAM_BOT_USERNAME", "TELEGRAM_WEBHOOK_SECRET", "MIGRATION_DATABASE_URL",
+  "DATABASE_CA_SOURCE", "DATABASE_CA_AMBIENT", "WORKER_CONFIGURATION",
+];
 
 function fixtures(values: Record<string, string> = settings) {
   const register = vi.fn(async () => {});
@@ -254,5 +266,129 @@ describe("owner-only production service connections", () => {
     const checker = fixtures();
     await connectServices(["--upload-checker-key"], checker.dependencies);
     expect(checker.dependencies.registration).not.toHaveBeenCalled();
+  });
+
+  it("audits every saved setting through canonical local reads without contacting any service", async () => {
+    const f = fixtures();
+    const checks = await checkServiceSettings(f.dependencies);
+    expect(checks).toEqual(settingNames.map((setting) => ({ setting, ok: true })));
+    expect(f.dependencies.readConfiguration).toHaveBeenCalledExactlyOnceWith(new URL("../../.env.production.local", import.meta.url));
+    expect(f.dependencies.readWorkerConfiguration).toHaveBeenCalledExactlyOnceWith(new URL("../../../checker/wrangler.jsonc", import.meta.url));
+    expect(f.dependencies.execute).not.toHaveBeenCalled();
+    expect(f.dependencies.registration).not.toHaveBeenCalled();
+    expect(f.register).not.toHaveBeenCalled();
+    expect(f.close).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    ["DATABASE_URL", { DATABASE_URL: runtime.replace("monitrail_app.", "postgres.") }],
+    ["APP_URL", { APP_URL: "http://private-invalid-origin.example.test" }],
+    ["INTERNAL_HMAC_SECRET", { INTERNAL_HMAC_SECRET: "private-short" }],
+    ["TELEGRAM_BOT_TOKEN", { TELEGRAM_BOT_TOKEN: "private-invalid-token" }],
+    ["TELEGRAM_BOT_USERNAME", { TELEGRAM_BOT_USERNAME: "private invalid username" }],
+    ["TELEGRAM_WEBHOOK_SECRET", { TELEGRAM_WEBHOOK_SECRET: "private invalid secret" }],
+    ["MIGRATION_DATABASE_URL", { MIGRATION_DATABASE_URL: admin.replace("postgres.fixture:", "postgres.other:") }],
+    ["MIGRATION_DATABASE_URL", { MIGRATION_DATABASE_URL: admin.replace(":5432", ":6543") }],
+    ["MIGRATION_DATABASE_URL", { MIGRATION_DATABASE_URL: admin.replace("/postgres", "/other-database") }],
+    ["DATABASE_CA_SOURCE", { DATABASE_CA_PEM: "private-invalid-ca" }],
+  ])("flags invalid %s with the same production validators and never connects", async (setting, changed) => {
+    const f = fixtures({ ...settings, ...changed });
+    const checks = await checkServiceSettings(f.dependencies);
+    expect(checks).toContainEqual({ setting, ok: false });
+    expect(checks.map((check) => check.setting)).toEqual(settingNames);
+    expect(JSON.stringify(checks)).not.toContain("private-");
+    await expect(connectServices(["--upload-checker-key", "--register-telegram"], f.dependencies)).rejects.toThrow("Service connection failed.");
+    expect(f.dependencies.execute).not.toHaveBeenCalled();
+    expect(f.dependencies.registration).not.toHaveBeenCalled();
+  });
+
+  it("flags duplicate saved settings without echoing their names or values from the input", async () => {
+    const f = fixtures();
+    f.dependencies.readConfiguration.mockResolvedValue({ content: `${serializePrivateEnvironment(settings)}export APP_URL = 'https://private-duplicate.example.test'\n` });
+    const checks = await checkServiceSettings(f.dependencies);
+    expect(checks).toContainEqual({ setting: "DUPLICATE_SETTINGS", ok: false });
+    expect(JSON.stringify(checks)).not.toContain("private-duplicate");
+    expect(f.dependencies.execute).not.toHaveBeenCalled();
+    expect(f.dependencies.registration).not.toHaveBeenCalled();
+  });
+
+  it.each(["DATABASE_CA_FILE", "DATABASE_CA_PEM"] as const)("reports ambient %s conflicts without replacing the saved CA source", async (key) => {
+    const f = fixtures({ ...settings, DATABASE_CA_PEM: getCACertificates()[0] });
+    f.dependencies.environment[key] = "private-conflicting-ca-value";
+    const checks = await checkServiceSettings(f.dependencies);
+    expect(checks).toContainEqual({ setting: "DATABASE_CA_AMBIENT", ok: false });
+    expect(checks).toContainEqual({ setting: "DATABASE_CA_SOURCE", ok: true });
+    expect(JSON.stringify(checks)).not.toContain("private-conflicting");
+    expect(f.dependencies.execute).not.toHaveBeenCalled();
+    expect(f.dependencies.registration).not.toHaveBeenCalled();
+  });
+
+  it("flags two saved CA sources without reading an arbitrary configured certificate path", async () => {
+    const f = fixtures({ ...settings, DATABASE_CA_FILE: "private-path-must-not-be-read", DATABASE_CA_PEM: getCACertificates()[0] });
+    expect(await checkServiceSettings(f.dependencies)).toContainEqual({ setting: "DATABASE_CA_SOURCE", ok: false });
+    expect(f.dependencies.execute).not.toHaveBeenCalled();
+    expect(f.dependencies.registration).not.toHaveBeenCalled();
+  });
+
+  it.each(["private-worker-json", JSON.stringify({ name: "private-other-worker" })])("fails malformed or mismatched trusted Worker configuration without any provider calls", async (content) => {
+    const f = fixtures();
+    f.dependencies.readWorkerConfiguration.mockResolvedValue(content);
+    const checks = await checkServiceSettings(f.dependencies);
+    expect(checks).toContainEqual({ setting: "WORKER_CONFIGURATION", ok: false });
+    expect(JSON.stringify(checks)).not.toContain("private-");
+    expect(f.dependencies.execute).not.toHaveBeenCalled();
+    expect(f.dependencies.registration).not.toHaveBeenCalled();
+  });
+
+  it("sanitizes unreadable private files and raw local errors into the fixed failed checklist", async () => {
+    const f = fixtures();
+    f.dependencies.readConfiguration.mockRejectedValue(new Error("private-file-path-token-detail"));
+    const checks = await checkServiceSettings(f.dependencies);
+    expect(checks).toEqual(settingNames.map((setting) => ({ setting, ok: false })));
+    expect(JSON.stringify(checks)).not.toContain("private-file");
+    expect(f.dependencies.readWorkerConfiguration).not.toHaveBeenCalled();
+    expect(f.dependencies.execute).not.toHaveBeenCalled();
+    expect(f.dependencies.registration).not.toHaveBeenCalled();
+  });
+
+  it.each([true, false])("prints only fixed setting names and PASS/FAIL in exact read-only CLI mode (valid=%s)", async (valid) => {
+    const f = fixtures(valid ? settings : { ...settings, TELEGRAM_BOT_TOKEN: "private-invalid-token" });
+    const output = vi.fn((_line: string) => {});
+    expect(await runServiceConnectionCommand(["--check-settings"], f.dependencies, output)).toBe(valid);
+    const lines = output.mock.calls.map(([line]) => line);
+    expect(lines).toHaveLength(settingNames.length);
+    expect(lines.every((line) => /^[A-Z_]+: (PASS|FAIL)$/.test(line))).toBe(true);
+    expect(lines.map((line) => line.split(":")[0])).toEqual(settingNames);
+    expect(lines.join("\n")).not.toContain("private-");
+    expect(f.dependencies.execute).not.toHaveBeenCalled();
+    expect(f.dependencies.registration).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    { args: ["--check-settings", "--upload-checker-key"] },
+    { args: ["--check-settings", "--register-telegram"] },
+    { args: ["--check-settings", "--check-settings"] },
+  ])("rejects audit mode combined with other arguments before reading settings or connecting", async ({ args }) => {
+    const f = fixtures();
+    await expect(runServiceConnectionCommand(args, f.dependencies, vi.fn())).rejects.toMatchObject({ stage: "arguments", completedOperations: [] });
+    expect(f.dependencies.readConfiguration).not.toHaveBeenCalled();
+    expect(f.dependencies.execute).not.toHaveBeenCalled();
+    expect(f.dependencies.registration).not.toHaveBeenCalled();
+  });
+
+  it("reads only an owned regular private configuration file without chmod or following symlinks", async () => {
+    const directory = await mkdtemp(join(tmpdir(), "monitrail-settings-audit-"));
+    const file = join(directory, "fixture.local");
+    const linked = join(directory, "linked.local");
+    try {
+      await writeFile(file, "private-synthetic-content", { mode: 0o400 });
+      expect(await readOnlyPrivateConfiguration(pathToFileURL(file))).toEqual({ content: "private-synthetic-content" });
+      expect((await stat(file)).mode & 0o777).toBe(0o400);
+      await symlink(file, linked);
+      await expect(readOnlyPrivateConfiguration(pathToFileURL(linked))).rejects.toThrow();
+      await chmod(file, 0o644);
+      await expect(readOnlyPrivateConfiguration(pathToFileURL(file))).rejects.toThrow();
+      expect((await stat(file)).mode & 0o777).toBe(0o644);
+    } finally { await rm(directory, { recursive: true, force: true }); }
   });
 });
