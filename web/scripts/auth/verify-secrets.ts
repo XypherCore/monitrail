@@ -13,6 +13,7 @@ const localFiles = [
   "web/.env.production.local.pending",
   "web/.env.production.local.config-pending",
   "web/.env.invite.local",
+  "web/.env.invite.production.local",
   "checker/.dev.vars",
 ];
 const credentialNames = [
