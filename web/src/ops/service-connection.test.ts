@@ -95,6 +95,24 @@ describe("owner-only production service connections", () => {
     } finally { logger.mockRestore(); }
   });
 
+  it("keeps machine-readable metadata output enabled while suppressing the key upload output", async () => {
+    const f = fixtures();
+    // Wrangler's JSON secret list uses logger.log, which emits nothing at "none".
+    // Model that actual CLI boundary so an exit-zero empty result cannot pass.
+    f.dependencies.execute.mockImplementation(async (command) => {
+      if (!command.args.includes("list")) return "";
+      return command.env.WRANGLER_LOG === "log" ? "[]" : "";
+    });
+    await expect(connectServices(["--upload-checker-key"], f.dependencies)).resolves.toBeUndefined();
+    const [list, put] = f.dependencies.execute.mock.calls.map(([command]) => command);
+    expect(list.env).toMatchObject({ WRANGLER_LOG: "log", WRANGLER_WRITE_LOGS: "false" });
+    expect(put.env).toMatchObject({ WRANGLER_LOG: "none", WRANGLER_WRITE_LOGS: "false" });
+    expect(list.env).not.toBe(put.env);
+    expect(list.input).toBeUndefined();
+    expect(put.input).toBe(settings.INTERNAL_HMAC_SECRET);
+    expect(put.args).not.toContain(settings.INTERNAL_HMAC_SECRET);
+  });
+
   it("refuses a missing checker and never uploads its key", async () => {
     const f = fixtures();
     f.dependencies.execute.mockRejectedValueOnce(new Error("private-auth-detail"));
@@ -104,7 +122,7 @@ describe("owner-only production service connections", () => {
   });
 
   it("refuses malformed Worker metadata before key upload and closes the registration connection", async () => {
-    for (const output of ["not-json", "{}", '[{"name":"OTHER","type":"plain_text"}]']) {
+    for (const output of ["", "not-json", "{}", '[{"name":"OTHER","type":"plain_text"}]']) {
       const f = fixtures();
       f.dependencies.execute.mockResolvedValueOnce(output);
       await expect(connectServices(["--upload-checker-key", "--register-telegram"], f.dependencies)).rejects.toThrow("Service connection failed.");

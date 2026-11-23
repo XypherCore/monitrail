@@ -94,7 +94,9 @@ export function checkerKeyCommands(signingKey: string, ambient: Environment = pr
   const base = { executable: process.execPath, cwd: repository, env };
   const wrangler = fileURLToPath(new URL("../../../node_modules/wrangler/bin/wrangler.js", import.meta.url));
   return [
-    { ...base, args: [wrangler, "secret", "list", "--format", "json", ...common] },
+    // JSON secret metadata is emitted through Wrangler's normal logger. Keep it
+    // readable for validation while disk logging and key-upload output stay off.
+    { ...base, env: { ...env, WRANGLER_LOG: "log" }, args: [wrangler, "secret", "list", "--format", "json", ...common] },
     { ...base, args: [wrangler, "secret", "put", "INTERNAL_HMAC_SECRET", ...common], input: signingKey },
   ];
 }
