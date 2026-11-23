@@ -106,8 +106,8 @@ healthy result.
   replaced file. Independent review findings were resolved. No live
   production invite was created by the agent.
 - The final 2026-11-23 local verification passed both isolated builds, lint
-  and type checking, all 574 web tests, 377 checker tests, 14 independent
-  Node tests and seven native Worker tests, 972 total. The final full run
+  and type checking, all 598 web tests, 377 checker tests, 14 independent
+  Node tests and seven native Worker tests, 996 total. The final full run
   used the required local-fixture permissions after restricted runs blocked
   child commands and loopback test servers. Source/history pattern scans
   and configured-value scans of source, history and generated browser files
@@ -121,9 +121,21 @@ healthy result.
   opening that connection and reports only allowlisted failure stages and
   confirmed completed operations. It also rejects conflicting ambient CA
   settings. Synthetic regression tests and independent review passed.
-  The original failure's exact stage is unverified until the owner reruns
-  the updated command; no production setting has been guessed or changed
-  by the agent.
+  The owner's retry identified the local-settings validation stage, with
+  no completed operations. A separately tested and reviewed read-only
+  diagnostic mode was approved for agent execution. It reported failures
+  only for TELEGRAM_BOT_TOKEN, TELEGRAM_BOT_USERNAME and
+  TELEGRAM_WEBHOOK_SECRET; production-file access, duplicate detection,
+  database settings, origin, signing key, CA configuration and trusted
+  Worker configuration all passed. The audit made no service calls or
+  file changes and revealed no setting values. Correcting and uploading
+  the Telegram credentials remains an owner action.
+- CI for the production-invitation and staged connection fixes passed on
+  main at `9bc557b126c053b32fe5a8dc6823a276b83c33cc`, including production
+  browser journeys and the storage-budget check:
+  [run 45187872205](https://github.com/XypherCore/monitrail/actions/runs/45187872205).
+  The subsequent read-only diagnostic is covered by the final local run
+  above and independent review; its hosted CI run remains to be recorded.
 - Declared the root package's existing ESM format explicitly. This removes
   the incidental module-format warning for shared TypeScript imports.
   Both workspaces already use ESM and executable JavaScript uses explicit

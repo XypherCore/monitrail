@@ -100,6 +100,19 @@ does not roll back an uploaded key. Retry only the remaining operation
 when a previous one is confirmed complete. A successful web deployment
 does not substitute for this connection or a healthy checker heartbeat.
 
+For a local-settings failure, run the isolated diagnostic mode:
+
+```sh
+npm run deploy:connect-services --workspace web -- --check-settings
+```
+
+It prints only fixed setting names and PASS/FAIL, reads the canonical
+owner-only production file without changing its permissions, and makes no
+database, provider or Worker calls. It cannot be combined with connection
+flags. A failed production-file check makes the later results unavailable.
+Use the failed field names to correct local settings; never paste values
+or raw provider errors into a public issue.
+
 Create a single-use production invitation separately:
 
 ```sh
