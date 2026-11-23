@@ -80,6 +80,41 @@ and deploy its private Queue consumer and both schedules. It has no
 database credential, public Worker endpoint or preview URL. Verify minute
 ticks and measure the daily maintenance invocation's CPU on the Free plan.
 
+From the repository root, connect the deployed services with the private
+production configuration:
+
+```sh
+npm run deploy:connect-services --workspace web -- \
+  --upload-checker-key --register-telegram
+```
+
+The owner runs this local command when the agent's credential-protection
+guard blocks private-file execution. It uploads the signing key through
+standard input and registers Telegram through the guarded transport.
+Neither action prints credentials. Secret-name metadata is read separately
+from the suppressed upload output. Requested local settings and TLS
+configuration are validated before any upload. The checker key is uploaded
+before the Telegram database connection opens. A failed operation reports
+only its fixed stage and the operations already confirmed complete; it
+does not roll back an uploaded key. Retry only the remaining operation
+when a previous one is confirmed complete. A successful web deployment
+does not substitute for this connection or a healthy checker heartbeat.
+
+Create a single-use production invitation separately:
+
+```sh
+npm run auth:invite-production --workspace web
+```
+
+The command reads the canonical ignored production file and refuses
+conflicting ambient database or CA settings. It uses the restricted
+runtime role, stores only the invitation hash and saves the code in
+ignored `web/.env.invite.production.local` with owner-only permissions.
+Open that file locally and keep the file private. Share a code only with
+its intended invitee through a private channel; never publish it. After
+consuming the code, remove the file before generating another invitation.
+The development invitation command remains separate.
+
 Set the GitHub repository variable APP_URL and run the health workflow
 manually. The owner must enable failure notifications. Register production
 provider callbacks, verify both sign-ins and test real alert delivery.

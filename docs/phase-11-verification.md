@@ -29,9 +29,9 @@ healthy result.
   “Production database preparation passed. No application data was seeded.”
   This is owner-reported production evidence. No credentials were shared.
 - Created the Vercel Hobby project and verified its `web` root, Next.js
-  framework and Node 24 runtime. The domain was verified. Its previous
-  private-address DNS record requires replacement with Vercel's recommended
-  public address before hosted acceptance.
+  framework and Node 24 runtime. The owner replaced the domain's previous
+  private-address DNS record with Vercel's recommended public address.
+  HTTPS and hosted response headers were subsequently verified.
 - Created the private production check queue. The tested Worker was
   deployed with both schedules and Queue bindings. Its public and preview
   endpoints remain disabled. Version
@@ -40,7 +40,8 @@ healthy result.
   reviewed production settings upload successfully. The dedicated proof
   keys were then prepared and uploaded through the same owner-only
   command. GitHub metadata confirmed the two expected secret names without
-  returning their values. Hosted sign-in and TLS remain acceptance gates.
+  returning their values. Hosted sign-in and the database TLS connection
+  remain acceptance gates.
 - Added the narrow, tested blocklist administrator capability and private
   evidence exporter. Added a strict offline proof scorer and database-backed
   integration tests for daily and final grace boundaries. Test fixtures are
@@ -82,10 +83,56 @@ healthy result.
   omitted the repository's TypeScript build tool. The install command now
   explicitly uses the parent root lockfile and includes pinned development
   build dependencies. No dependency versions changed.
+- Production web revision `07702a10859562495aa2f9953ed3490cf84cfb8b`
+  deployed successfully. Hosted checks verified HTTPS, strict nonce-based
+  security headers, protected-route redirects, unsigned export rejection,
+  generic unknown-page responses and the 360 px layout, with no browser
+  console errors or unexpected external requests. These unauthenticated
+  checks do not establish hosted OAuth, database or alert acceptance.
+- On 2026-11-23, the production health endpoint returned 503 and the
+  Worker's secret-name metadata was empty. Signing-key connection is still
+  required. The connection helper's metadata query now preserves JSON
+  output while secret uploads continue to suppress output. Focused tests
+  and independent review passed. The owner must run the private-file
+  connection command; no key value was inspected or displayed.
+- GitHub CI passed for deployed revision `07702a1` and connection-helper
+  revision `13bf911`. The latter is recorded in
+  [run 45184294694](https://github.com/XypherCore/monitrail/actions/runs/45184294694).
+  The source remains private pending the remaining deployment acceptance.
+- Added the explicit production invitation command with canonical private
+  configuration, ambient-connection conflict checks, hash-only persistence
+  and exclusive owner-only output. Tests cover rollback after partial
+  writes, close and commit failures without deleting an existing or
+  replaced file. Independent review findings were resolved. No live
+  production invite was created by the agent.
+- The final 2026-11-23 local verification passed both isolated builds, lint
+  and type checking, all 574 web tests, 377 checker tests, 14 independent
+  Node tests and seven native Worker tests, 972 total. The final full run
+  used the required local-fixture permissions after restricted runs blocked
+  child commands and loopback test servers. Source/history pattern scans
+  and configured-value scans of source, history and generated browser files
+  passed. No product behavior was changed for verification restrictions.
+- The owner's combined service-connection command then reported a generic
+  failure. Read-only checks confirmed the Worker still had no configured
+  key and production health still returned 503. The helper previously
+  opened Telegram's database connection before attempting the Worker
+  upload, so a failure there could prevent both operations. The helper now
+  validates requested local settings first, uploads the checker key before
+  opening that connection and reports only allowlisted failure stages and
+  confirmed completed operations. It also rejects conflicting ambient CA
+  settings. Synthetic regression tests and independent review passed.
+  The original failure's exact stage is unverified until the owner reruns
+  the updated command; no production setting has been guessed or changed
+  by the agent.
+- Declared the root package's existing ESM format explicitly. This removes
+  the incidental module-format warning for shared TypeScript imports.
+  Both workspaces already use ESM and executable JavaScript uses explicit
+  `.mjs` files. Independent compatibility review and the 14 Node tests
+  passed without that warning.
 
 ## Open completion checks
 
-- [ ] Production settings uploaded, DNS propagated and HTTPS verified.
+- [x] Production settings uploaded, DNS propagated and HTTPS verified.
 - [ ] CI green for the deployment changes and source/history scans clean.
 - [ ] Web app and private Worker deployed with matching fresh signing keys.
 - [ ] Hosted database TLS, both OAuth providers and real alert delivery verified.
