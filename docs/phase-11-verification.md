@@ -302,6 +302,15 @@ healthy result.
   maintenance CPU evidence. A short cadence sample does not close those gates.
   This manual preflight is not the start of the formal 14-day run.
   Calendar time since deployment does not count as a completed proof run.
+- The owner selected the visible login page as the human-trial starting
+  point, with the invite already available. Docs 01, 07 and the runbook now
+  specify that sign-in, monitor creation and waiting for the first healthy
+  result are included. No human trial duration has been recorded yet.
+- The owner reported that the hosted cross-account test passed: the Google
+  account could not open the GitHub account's two monitors. This is
+  owner-reported signed-in browser evidence. The public-page revocation
+  test remains open; reaching its slug field does not establish publication
+  or revocation. No monitor IDs or account details are recorded here.
 
 ## Open completion checks
 
@@ -310,7 +319,8 @@ healthy result.
 - [x] Web app and private Worker deployed with matching fresh signing keys.
 - [x] Hosted database TLS, both OAuth providers and real alert delivery verified.
 - [x] Approved cadence correction deployed and short live timing sample verified.
-- [ ] Hosted signed-in cross-account denial and public-page revocation verified.
+- [x] Hosted signed-in cross-account denial verified (owner reported).
+- [ ] Hosted public-page revocation verified.
 - [ ] Scheduled checker and daily maintenance CPU observed on the Free plan.
 - [x] Independent production health workflow enabled and verified.
 - [x] Owner failure notifications enabled (owner confirmed).

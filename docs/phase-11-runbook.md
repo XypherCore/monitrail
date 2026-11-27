@@ -335,8 +335,11 @@ to hide failures.
 ## Completion evidence
 
 Record three anonymous human trials as A, B and C, with start and first
-healthy-result timestamps and elapsed seconds. Each must be under two
-minutes. Automated browser fixtures do not substitute for these trials.
+healthy-result timestamps and elapsed seconds. Start when the login page
+is visible and the person already has their invite. Include sign-in,
+monitor creation and waiting for the first healthy result to appear. Each
+must be under two minutes. Automated browser fixtures do not substitute
+for these trials.
 
 After 14 real clean days and all incident reviews, write the short case
 study using measured results, the deployed revision and the exact proof

@@ -122,6 +122,10 @@ first, then the code.
   across the fleet. Slots intersecting a pause are excluded. Configuration
   changes restart the run. The human first-monitor timer stops at the
   first healthy result. These measurement rules do not change scheduling.
+- **Human trial timing**: the owner selected the visible login page as the
+  starting point, with the invite already available to the person. Timing
+  includes sign-in, monitor creation and waiting for the first healthy
+  result to appear. Three distinct human trials remain required.
 - **Phase 11 cadence correction**: the first live encrypted preflight
   showed 361–363-second receipt gaps for five-minute monitors. The owner
   approved scheduling settled checks from the consumed due time's interval

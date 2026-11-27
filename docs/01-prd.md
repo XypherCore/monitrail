@@ -126,7 +126,9 @@ released when deployment passes its checks. Public signups remain closed.
 The dogfood targets are `https://aelvon.vercel.app` and Monitrail's canonical
 origin. The owner excluded the previously proposed client site from scope.
 Three anonymous human first-monitor trials remain required. Their timer
-ends when the first healthy result appears.
+starts when the login page is visible and the person already has their
+invite. It includes sign-in, monitor creation and waiting until the first
+healthy result appears, when the timer stops.
 
 Proof uses fixed five-minute slots anchored to each monitor's proof start,
 server acceptance timestamps, one result per slot and 60 seconds' grace.
