@@ -35,13 +35,14 @@ healthy result.
 - Created the private production check queue. The tested Worker was
   deployed with both schedules and Queue bindings. Its public and preview
   endpoints remain disabled. Version
-  `9322d90b-c03a-452a-9149-4dee96b12046` awaits signing-key connection.
+  `9322d90b-c03a-452a-9149-4dee96b12046` initially awaited signing-key
+  connection; live connection evidence is recorded below.
 - The owner reported DNS and OAuth dashboard changes complete and ran the
   reviewed production settings upload successfully. The dedicated proof
   keys were then prepared and uploaded through the same owner-only
   command. GitHub metadata confirmed the two expected secret names without
-  returning their values. Hosted sign-in and the database TLS connection
-  remain acceptance gates.
+  returning their values. Hosted sign-in remained an acceptance gate;
+  runtime database TLS was subsequently verified through live health.
 - Added the narrow, tested blocklist administrator capability and private
   evidence exporter. Added a strict offline proof scorer and database-backed
   integration tests for daily and final grace boundaries. Test fixtures are
@@ -90,11 +91,11 @@ healthy result.
   console errors or unexpected external requests. These unauthenticated
   checks do not establish hosted OAuth, database or alert acceptance.
 - On 2026-11-23, the production health endpoint returned 503 and the
-  Worker's secret-name metadata was empty. Signing-key connection is still
+  Worker's secret-name metadata was empty. Signing-key connection was then
   required. The connection helper's metadata query now preserves JSON
   output while secret uploads continue to suppress output. Focused tests
-  and independent review passed. The owner must run the private-file
-  connection command; no key value was inspected or displayed.
+  and independent review passed. The initial private-file connection
+  command required owner execution; no key value was displayed.
 - GitHub CI passed for deployed revision `07702a1` and connection-helper
   revision `13bf911`. The latter is recorded in
   [run 45184294694](https://github.com/XypherCore/monitrail/actions/runs/45184294694).
@@ -103,8 +104,8 @@ healthy result.
   configuration, ambient-connection conflict checks, hash-only persistence
   and exclusive owner-only output. Tests cover rollback after partial
   writes, close and commit failures without deleting an existing or
-  replaced file. Independent review findings were resolved. No live
-  production invite was created by the agent.
+  replaced file. Independent review findings were resolved. The first live
+  production invite was created during the resumed acceptance below.
 - The final 2026-11-23 local verification passed both isolated builds, lint
   and type checking, all 598 web tests, 377 checker tests, 14 independent
   Node tests and seven native Worker tests, 996 total. The final full run
@@ -128,28 +129,77 @@ healthy result.
   TELEGRAM_WEBHOOK_SECRET; production-file access, duplicate detection,
   database settings, origin, signing key, CA configuration and trusted
   Worker configuration all passed. The audit made no service calls or
-  file changes and revealed no setting values. Correcting and uploading
-  the Telegram credentials remains an owner action.
+  file changes and revealed no setting values. The owner then corrected
+  and uploaded the Telegram settings.
 - CI for the production-invitation and staged connection fixes passed on
   main at `9bc557b126c053b32fe5a8dc6823a276b83c33cc`, including production
   browser journeys and the storage-budget check:
   [run 45187872205](https://github.com/XypherCore/monitrail/actions/runs/45187872205).
-  The subsequent read-only diagnostic is covered by the final local run
-  above and independent review; its hosted CI run remains to be recorded.
+  The subsequent read-only diagnostic also passed CI at the deployed
+  revision recorded below.
 - Declared the root package's existing ESM format explicitly. This removes
   the incidental module-format warning for shared TypeScript imports.
   Both workspaces already use ESM and executable JavaScript uses explicit
   `.mjs` files. Independent compatibility review and the 14 Node tests
   passed without that warning.
 
+## Live acceptance verified 2026-11-27
+
+- The owner completed the checker signing-key upload on 2026-11-23.
+  Secret-name metadata confirmed the expected binding, and production
+  health changed from 503 to 200. The narrow, guarded Telegram-only retry
+  then completed successfully without sending a chat message or displaying
+  credentials. The earlier registration failure's exact cause was not
+  established; no transport rule or timeout was relaxed.
+- The production deployment started before the interruption and later
+  reached READY as
+  `dpl_7zvPHHoHZRdJmgmg4KPzn2tEVpPe`. Read-only Vercel metadata confirmed
+  READY, production target, source revision
+  `86a417d72c4ebf9c281c7db5e77ec3e839a66bf2` and the canonical domain alias.
+  Production Telegram variable names were present before this deployment;
+  administrative database credentials, local CA paths and the proof
+  encryption key were excluded from the hosted environment.
+- [CI run 45190034373](https://github.com/XypherCore/monitrail/actions/runs/45190034373)
+  passed for that deployed revision. The approved independent health
+  workflow was enabled with the public APP_URL variable and passed its
+  [initial run](https://github.com/XypherCore/monitrail/actions/runs/45191481598)
+  and [latest observed run](https://github.com/XypherCore/monitrail/actions/runs/45940784153).
+  Owner failure-notification preferences remain unverified.
+- The canonical health endpoint again returned 200. Public landing,
+  login and bot pages returned 200, fit 360 px, retained the expected
+  security headers and produced zero console errors or external requests.
+  Protected dashboard access redirected to login; unsigned proof export
+  returned 401 and an unauthenticated Telegram callback returned the
+  handler's intentional 404. Sign-in CSRF setup returned 200 without
+  exposing its token.
+- Added fixed, allowlisted Telegram guard reasons to operator failures.
+  A fresh independent review found that a forged error getter or Proxy
+  could escape sanitization. Guarded own-data-property extraction and seven
+  adversarial regression tests resolved that finding. Full local checks
+  passed both isolated builds, lint, type checking, 622 web tests, 377
+  checker tests, 14 independent Node tests and seven native Worker tests:
+  1,020 total. Configured-value and source/history secret scans passed.
+  No quota, timeout, retention rule or state-machine constant changed.
+- The approved invitation command created one production invite using the
+  restricted role, storing only the hash in PostgreSQL and the code in the
+  ignored owner-only file. No code was displayed. The owner reported that
+  provider callbacks still needed the production domain; exact settings
+  were supplied for the existing OAuth apps. Both production sign-ins and
+  real private-chat alert delivery remain acceptance gates.
+- Source remains private. Proof collection remains gated pending the two
+  approved monitors, configured export IDs, a verified encrypted capture
+  and the common proof start. Calendar time since deployment does not count
+  as a completed proof run.
+
 ## Open completion checks
 
 - [x] Production settings uploaded, DNS propagated and HTTPS verified.
 - [ ] CI green for the deployment changes and source/history scans clean.
-- [ ] Web app and private Worker deployed with matching fresh signing keys.
+- [x] Web app and private Worker deployed with matching fresh signing keys.
 - [ ] Hosted database TLS, both OAuth providers and real alert delivery verified.
 - [ ] Scheduled checker and daily maintenance CPU observed on the Free plan.
-- [ ] Independent production health workflow and owner notifications enabled.
+- [x] Independent production health workflow enabled and verified.
+- [ ] Owner failure notifications enabled and verified.
 - [ ] Source released under MIT after deployment acceptance.
 - [ ] Two approved dogfood monitors and private evidence collection started.
 - [ ] Fourteen real consecutive clean days, all incidents reviewed and missed

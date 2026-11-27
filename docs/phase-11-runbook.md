@@ -66,6 +66,17 @@ TELEGRAM_BOT_TOKEN and TELEGRAM_BOT_USERNAME; the command generates a fresh
 webhook secret when these are supplied together. Register the bot's
 authenticated HTTPS webhook after deployment.
 
+For the approved production origin, set the existing GitHub OAuth app's
+Homepage URL to `https://monitrail.duckdns.org` and Authorization callback
+URL to `https://monitrail.duckdns.org/api/auth/callback/github`. In the
+existing Google Web application client, set the Authorized JavaScript
+origin to `https://monitrail.duckdns.org` and Authorized redirect URI to
+`https://monitrail.duckdns.org/api/auth/callback/google`. Preserve the
+existing client credentials when only changing these addresses. Replacement
+OAuth apps require their corresponding credentials to be uploaded and
+deployed before testing. Provider dashboard changes still need live sign-in
+acceptance; a loaded login page does not verify a callback.
+
 The command uploads only allowlisted runtime settings, as production-only
 Vercel secret variables. It excludes the migration credential and local CA
 paths. It refuses stale production variables absent from the desired
@@ -99,6 +110,11 @@ only its fixed stage and the operations already confirmed complete; it
 does not roll back an uploaded key. Retry only the remaining operation
 when a previous one is confirmed complete. A successful web deployment
 does not substitute for this connection or a healthy checker heartbeat.
+Telegram registration failures may also include a fixed guard category.
+This never includes provider descriptions, response bodies or tokens.
+An unsuccessful provider response does not by itself establish that the
+bot token is wrong. Registration success must still be followed by linking
+the owner's private chat and receiving a real test alert.
 
 For a local-settings failure, run the isolated diagnostic mode:
 
