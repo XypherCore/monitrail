@@ -64,8 +64,9 @@ healthy result.
 - The final combined run passed lint, both type checks, 541 web tests,
   377 checker tests, 14 independent probe/crypto/collector tests and seven
   native Worker tests, 939 total. The Worker dry-run bundle and isolated
-  production build passed. All production keyboard/security journeys
-  passed with zero console errors or unexpected external requests. The
+  production build passed. Keyboard and security journeys against that
+  isolated build passed with zero console errors or unexpected external
+  requests. The
   storage fixture measured 139,474,623 bytes, 27.89% of the plan allowance.
   An independent second model reviewed the full security and workflow
   changes and left no open findings.
@@ -132,8 +133,9 @@ healthy result.
   file changes and revealed no setting values. The owner then corrected
   and uploaded the Telegram settings.
 - CI for the production-invitation and staged connection fixes passed on
-  main at `9bc557b126c053b32fe5a8dc6823a276b83c33cc`, including production
-  browser journeys and the storage-budget check:
+  main at `9bc557b126c053b32fe5a8dc6823a276b83c33cc`, including browser
+  journeys against the isolated production build and the storage-budget
+  check:
   [run 45187872205](https://github.com/XypherCore/monitrail/actions/runs/45187872205).
   The subsequent read-only diagnostic also passed CI at the deployed
   revision recorded below.
@@ -265,9 +267,39 @@ healthy result.
   Full regression verification passed 650 web tests, 377 checker/shared
   tests and 22 script tests; the seven native Worker tests also passed,
   1,056 total. Web lint, type checking and whitespace checks passed.
-  Live corrected cadence remains to be verified after deployment.
+  Live corrected cadence evidence is recorded below.
+- Both final isolated builds passed with synthetic configuration. The
+  configured-value scan passed across 419 eligible and built browser files,
+  the Git index and 66 reachable commits; source/history pattern scans also
+  passed. The reviewed changes were fast-forwarded to main without changing
+  repository visibility.
+- Corrected application revision
+  `575a1e2f87e5d167833193239a1d6f27285e90b1` deployed from a clean committed
+  archive, excluding local settings and the Git directory, as
+  `dpl_Bezx3kEAzYbmX6BbgvFopkWSxtmT`. Read-only metadata confirmed READY,
+  production and the canonical alias. Hosted health returned 200 and all
+  anonymous security/mobile checks passed again, with zero console errors
+  or unexpected external requests. This web-only deployment preserved the
+  private Worker and production keys.
+- [CI run 46025145706](https://github.com/XypherCore/monitrail/actions/runs/46025145706)
+  passed for that exact deployed revision on main, including builds, types,
+  application/security suites, native transport, secret scans, dependency
+  advisories, browser journeys against the isolated production build and
+  the storage-budget check.
+- [Fresh preflight run 46026705467](https://github.com/XypherCore/monitrail/actions/runs/46026705467)
+  passed after two normal check cycles. Its encrypted artifact was
+  downloaded and decrypted into new owner-only files outside the checkout.
+  The snapshot captured at 15:38:50.139 UTC matched the approved scope and
+  contained two post-deployment accepted results per monitor after
+  15:30 UTC. Each monitor's single measured gap rounded to 302 seconds,
+  compared with the earlier 361–363-second gaps. Both latest results were
+  healthy, revisions remained 1, intervals remained 300 seconds and neither
+  monitor was paused. The snapshot had no missing receipts or incidents.
+  This short sample validates the deployed correction; it does not
+  establish the daily missed-slot threshold or fourteen clean days.
 - Source remains private. The common proof start and scheduled collection
-  remain gated pending deployment acceptance and cadence review.
+  remain gated pending the remaining hosted security checks and scheduled
+  maintenance CPU evidence. A short cadence sample does not close those gates.
   This manual preflight is not the start of the formal 14-day run.
   Calendar time since deployment does not count as a completed proof run.
 
@@ -277,6 +309,8 @@ healthy result.
 - [x] CI green for the deployment changes and source/history scans clean.
 - [x] Web app and private Worker deployed with matching fresh signing keys.
 - [x] Hosted database TLS, both OAuth providers and real alert delivery verified.
+- [x] Approved cadence correction deployed and short live timing sample verified.
+- [ ] Hosted signed-in cross-account denial and public-page revocation verified.
 - [ ] Scheduled checker and daily maintenance CPU observed on the Free plan.
 - [x] Independent production health workflow enabled and verified.
 - [x] Owner failure notifications enabled (owner confirmed).
@@ -289,7 +323,8 @@ healthy result.
 
 Operational commands, privacy boundaries and proof limitations are in the
 [Phase 11 runbook](phase-11-runbook.md). Remaining uncertainty includes
-daily maintenance CPU, deployed cadence under the strict fixed-slot rule,
-the human trials and the actual 14-day outcome. The scheduling correction
+hosted security checks, daily maintenance CPU, daily cadence under the
+strict fixed-slot rule, the human trials and the actual 14-day outcome.
+The scheduling correction
 has explicit owner approval. No quota, application retention, incident
 threshold or proof threshold was changed to make the proof easier.
