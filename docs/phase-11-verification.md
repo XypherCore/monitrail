@@ -298,8 +298,8 @@ healthy result.
   This short sample validates the deployed correction; it does not
   establish the daily missed-slot threshold or fourteen clean days.
 - Source remains private. The common proof start and scheduled collection
-  remain gated pending the remaining hosted security checks and scheduled
-  maintenance CPU evidence. A short cadence sample does not close those gates.
+  remain gated pending scheduled maintenance CPU evidence. A short cadence
+  sample does not close that gate.
   This manual preflight is not the start of the formal 14-day run.
   Calendar time since deployment does not count as a completed proof run.
 - The owner selected the visible login page as the human-trial starting
@@ -311,6 +311,12 @@ healthy result.
   owner-reported signed-in browser evidence. The public-page revocation
   test remains open; reaching its slug field does not establish publication
   or revocation. No monitor IDs or account details are recorded here.
+- The owner subsequently confirmed that the published test page loaded in
+  a private window and immediately showed Not found after unpublishing and
+  refreshing that window. This completes the requested hosted
+  publish/unpublish revocation check as owner-reported browser evidence.
+  The broader mutation/revocation suite remains covered by CI; this manual
+  result does not claim every mutation was repeated against the host.
 
 ## Open completion checks
 
@@ -320,7 +326,7 @@ healthy result.
 - [x] Hosted database TLS, both OAuth providers and real alert delivery verified.
 - [x] Approved cadence correction deployed and short live timing sample verified.
 - [x] Hosted signed-in cross-account denial verified (owner reported).
-- [ ] Hosted public-page revocation verified.
+- [x] Hosted public-page publish/unpublish revocation verified (owner reported).
 - [ ] Scheduled checker and daily maintenance CPU observed on the Free plan.
 - [x] Independent production health workflow enabled and verified.
 - [x] Owner failure notifications enabled (owner confirmed).
@@ -333,8 +339,8 @@ healthy result.
 
 Operational commands, privacy boundaries and proof limitations are in the
 [Phase 11 runbook](phase-11-runbook.md). Remaining uncertainty includes
-hosted security checks, daily maintenance CPU, daily cadence under the
-strict fixed-slot rule, the human trials and the actual 14-day outcome.
+daily maintenance CPU, daily cadence under the strict fixed-slot rule,
+the human trials and the actual 14-day outcome.
 The scheduling correction
 has explicit owner approval. No quota, application retention, incident
 threshold or proof threshold was changed to make the proof easier.
