@@ -19,14 +19,33 @@ export function parseConfigureArguments(args: readonly string[]) {
     const key = args[index];
     if (flags.has(key)) throw new Error();
     flags.add(key);
-    if (key === "--origin" || key === "--abuse-contact") {
+    if (key === "--origin" || key === "--abuse-contact" || key === "--proof-monitor-ids") {
       const value = args[++index];
       if (!value || value.startsWith("--")) throw new Error();
       settings[key] = value;
     } else if (!["--reuse-oauth-apps", "--enable-proof-capture", "--upload", "--prepare-only"].includes(key)) throw new Error();
   }
   if (!settings["--origin"] || !settings["--abuse-contact"] || flags.has("--upload") === flags.has("--prepare-only")) throw new Error();
-  return { origin: settings["--origin"], abuseContact: settings["--abuse-contact"], proofCapture: flags.has("--enable-proof-capture"), reuseOAuth: flags.has("--reuse-oauth-apps"), upload: flags.has("--upload") };
+  const proofMonitorIds = settings["--proof-monitor-ids"];
+  if (proofMonitorIds !== undefined && !flags.has("--enable-proof-capture")) throw new Error();
+  return {
+    origin: settings["--origin"], abuseContact: settings["--abuse-contact"],
+    proofCapture: flags.has("--enable-proof-capture"), reuseOAuth: flags.has("--reuse-oauth-apps"), upload: flags.has("--upload"),
+    ...(proofMonitorIds !== undefined ? { proofMonitorIds } : {}),
+  };
+}
+
+/** Only the explicit local operator selection may replace the saved export scope. */
+export function prepareConfiguredProductionEnvironment(
+  existing: Readonly<Record<string, string | undefined>>,
+  options: ReturnType<typeof parseConfigureArguments>,
+  development?: Readonly<Record<string, string | undefined>>,
+) {
+  if (options.proofMonitorIds !== undefined && (!options.proofCapture || !options.proofMonitorIds)) throw new Error("Production settings are invalid.");
+  const selected = options.proofMonitorIds === undefined
+    ? existing
+    : { ...existing, DOGFOOD_EXPORT_MONITOR_IDS: options.proofMonitorIds };
+  return prepareProductionEnvironment(selected, options, development);
 }
 
 export async function readPrivateConfiguration(file: URL) {
@@ -136,7 +155,7 @@ export async function configureProduction(args: readonly string[]) {
   if (existing.DATABASE_CA_PEM && existing.DATABASE_CA_FILE) throw new Error();
   let development: Record<string, string | undefined> | undefined;
   if (options.reuseOAuth) development = parseEnv((await readPrivateConfiguration(new URL("../../.env.local", import.meta.url))).content);
-  const prepared = prepareProductionEnvironment(existing, options, development);
+  const prepared = prepareConfiguredProductionEnvironment(existing, options, development);
   let caPem = existing.DATABASE_CA_PEM;
   if (!caPem) {
     try { caPem = await readFile(resolve(web, existing.DATABASE_CA_FILE ?? ".certs/supabase-ca.crt"), "utf8"); }
