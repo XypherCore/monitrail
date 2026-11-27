@@ -12,7 +12,7 @@ import { isBlockedHost } from "../../../shared/ssrf/blocklist.ts";
 import { isTelegramWebhookSecret } from "../../src/alerts/channel-input.ts";
 import { isTelegramBotToken } from "../../src/alerts/telegram-target.ts";
 import { postgresOptions, postgresProject, readPostgresUrl, readRuntimePostgresUrl, validateDatabaseCaPem } from "../../src/db/postgres-config.ts";
-import { createWebGuard } from "../../src/security/web-ssrf.ts";
+import { createWebGuard, WebGuardError } from "../../src/security/web-ssrf.ts";
 import { readPrivateConfiguration } from "./configure-production.ts";
 
 type Environment = Readonly<Record<string, string | undefined>>;
@@ -63,6 +63,34 @@ const completedOperationLabels = {
   "telegram-webhook-registration": "Telegram webhook registration",
 } as const;
 type CompletedOperation = keyof typeof completedOperationLabels;
+const telegramFailureReasons = {
+  blocked: "The security guard blocked the request.",
+  dns: "The address could not be safely resolved.",
+  timeout: "The request reached its time limit.",
+  connect: "The connection failed.",
+  tls: "The secure connection failed.",
+  bad_status: "Telegram did not confirm the registration.",
+  other: "The guarded request could not be completed.",
+} as const;
+type TelegramFailureReason = keyof typeof telegramFailureReasons;
+
+function isTelegramFailureReason(code: unknown): code is TelegramFailureReason {
+  return typeof code === "string" && Object.hasOwn(telegramFailureReasons, code);
+}
+
+function trustedTelegramFailureReason(stage: FailureStage, error: unknown): TelegramFailureReason | undefined {
+  if (stage !== "telegram-webhook") return undefined;
+  try {
+    if (!(error instanceof WebGuardError)) return undefined;
+    // Provider errors may have been altered. Never evaluate a code accessor or
+    // let proxy/reflection failures escape the generic connection-error boundary.
+    const descriptor = Object.getOwnPropertyDescriptor(error, "code");
+    const code: unknown = descriptor && Object.hasOwn(descriptor, "value") ? descriptor.value : undefined;
+    return isTelegramFailureReason(code) ? code : undefined;
+  } catch {
+    return undefined;
+  }
+}
 const protectedSettings = ["DATABASE_URL", "DATABASE_CA_FILE", "DATABASE_CA_PEM", "APP_URL", "INTERNAL_HMAC_SECRET", "MIGRATION_DATABASE_URL", "TELEGRAM_BOT_TOKEN", "TELEGRAM_WEBHOOK_SECRET", "TELEGRAM_BOT_USERNAME"] as const;
 const settingChecks = [
   "PRODUCTION_FILE", "DUPLICATE_SETTINGS", "DATABASE_URL", "APP_URL", "INTERNAL_HMAC_SECRET",
@@ -75,11 +103,13 @@ type SettingCheck = { setting: SettingName; ok: boolean };
 export class ServiceConnectionError extends Error {
   readonly stage: FailureStage;
   readonly completedOperations: readonly CompletedOperation[];
+  readonly reason: TelegramFailureReason | undefined;
 
-  constructor(stage: FailureStage, completedOperations: readonly CompletedOperation[]) {
+  constructor(stage: FailureStage, completedOperations: readonly CompletedOperation[], reason?: TelegramFailureReason) {
     super("Service connection failed.");
     this.stage = stage;
     this.completedOperations = Object.freeze([...completedOperations]);
+    this.reason = stage === "telegram-webhook" && typeof reason === "string" && Object.hasOwn(telegramFailureReasons, reason) ? reason : undefined;
   }
 }
 
@@ -90,7 +120,9 @@ export function serviceConnectionFailureMessage(error: unknown): string {
   const completed = error.completedOperations
     .filter((operation) => Object.hasOwn(completedOperationLabels, operation))
     .map((operation) => completedOperationLabels[operation]);
-  return `${failureMessages[error.stage]} Completed operations: ${completed.join(", ") || "none"}. ${privacy}`;
+  const reason = error.stage === "telegram-webhook" && typeof error.reason === "string" && Object.hasOwn(telegramFailureReasons, error.reason)
+    ? ` ${telegramFailureReasons[error.reason]}` : "";
+  return `${failureMessages[error.stage]}${reason} Completed operations: ${completed.join(", ") || "none"}. ${privacy}`;
 }
 
 export function parseConnectArguments(args: readonly string[]): Operation {
@@ -331,15 +363,16 @@ export async function connectServices(args: readonly string[], dependencies: Par
         stage = "telegram-webhook";
         await registration.register();
         completedOperations.push("telegram-webhook-registration");
-      } catch {
+      } catch (error) {
         await registration.close().catch(() => {});
-        throw new Error();
+        throw error;
       }
       stage = "telegram-cleanup";
       await registration.close();
     }
-  } catch {
-    throw new ServiceConnectionError(stage, completedOperations);
+  } catch (error) {
+    const reason = trustedTelegramFailureReason(stage, error);
+    throw new ServiceConnectionError(stage, completedOperations, reason);
   }
 }
 

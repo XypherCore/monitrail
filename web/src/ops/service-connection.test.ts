@@ -18,6 +18,7 @@ import {
   type WranglerInvocation,
 } from "../../scripts/deploy/connect-services.ts";
 import { serializePrivateEnvironment } from "./production-environment.ts";
+import { WebGuardError } from "../security/web-ssrf.ts";
 
 const origin = "https://app.example.test";
 const runtime = "postgres://monitrail_app.fixture:fixture-runtime-password@aws-0-test.pooler.supabase.com:6543/postgres";
@@ -237,6 +238,120 @@ describe("owner-only production service connections", () => {
     expect(display).toContain("Production service connection failed.");
     expect(display).not.toContain("private-provider-detail");
     expect(error.toString).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    ["blocked", "The security guard blocked the request."],
+    ["dns", "The address could not be safely resolved."],
+    ["timeout", "The request reached its time limit."],
+    ["connect", "The connection failed."],
+    ["tls", "The secure connection failed."],
+    ["bad_status", "Telegram did not confirm the registration."],
+    ["other", "The guarded request could not be completed."],
+  ] as const)("preserves only the trusted allowlisted Telegram guard reason %s", async (reason, explanation) => {
+    const f = fixtures();
+    const providerError = new WebGuardError(reason);
+    providerError.message = "private-provider-token-url-body-detail";
+    f.register.mockRejectedValueOnce(providerError);
+    const error = await connectServices(["--upload-checker-key", "--register-telegram"], f.dependencies).catch((failure) => failure);
+    expect(error).toMatchObject({ message: "Service connection failed.", stage: "telegram-webhook", reason, completedOperations: ["checker-key-upload"] });
+    expect(error.cause).toBeUndefined();
+    expect(f.close).toHaveBeenCalledOnce();
+    expect(f.dependencies.execute).toHaveBeenCalledTimes(2);
+    const display = serviceConnectionFailureMessage(error);
+    expect(display).toContain(explanation);
+    expect(display).toContain("checker signing key upload");
+    expect(display).not.toContain("private-provider");
+    expect(display).not.toContain("wrong token");
+    expect(JSON.stringify(error)).not.toContain("private-provider");
+  });
+
+  it.each([
+    { failure: Object.assign(new Error("private-untrusted-error"), { code: "dns" }) },
+    { failure: { code: "private-token-code", message: "private-untrusted-object" } },
+    { failure: { code: { toString: (): string => "private-code-stringification" }, message: "private-untrusted-object" } },
+    { failure: "private-untrusted-string" },
+    { failure: Object.assign(new WebGuardError("dns"), { code: "private-altered-code" }) },
+    { failure: Object.assign(new WebGuardError("dns"), { code: { toString: (): never => { throw new Error("private-code-coercion-detail"); } } }) },
+  ])("drops untrusted or nonallowlisted error codes without a provider cause", async ({ failure }) => {
+    const f = fixtures();
+    f.register.mockRejectedValueOnce(failure);
+    const error = await connectServices(["--upload-checker-key", "--register-telegram"], f.dependencies).catch((result) => result);
+    expect(error).toMatchObject({ stage: "telegram-webhook", completedOperations: ["checker-key-upload"] });
+    expect(error.reason).toBeUndefined();
+    expect(error.cause).toBeUndefined();
+    expect(serviceConnectionFailureMessage(error)).not.toContain("private-");
+    expect(JSON.stringify(error)).not.toContain("private-");
+    expect(f.close).toHaveBeenCalledOnce();
+  });
+
+  it.each([
+    ["forged throwing code getter", () => Object.create(WebGuardError.prototype, {
+      code: { get(): never { throw new Error("private-code-getter-detail"); } },
+    })],
+    ["mutated throwing code getter", () => Object.defineProperty(new WebGuardError("dns"), "code", {
+      get(): never { throw new Error("private-mutated-getter-detail"); },
+    })],
+    ["throwing prototype proxy", () => new Proxy(new WebGuardError("dns"), {
+      getPrototypeOf(): never { throw new Error("private-prototype-trap-detail"); },
+    })],
+    ["throwing descriptor proxy", () => new Proxy(new WebGuardError("dns"), {
+      getOwnPropertyDescriptor(): never { throw new Error("private-descriptor-trap-detail"); },
+    })],
+    ["inherited guard code", () => Object.create(new WebGuardError("dns"))],
+    ["revoked proxy", () => {
+      const { proxy, revoke } = Proxy.revocable(new WebGuardError("dns"), {});
+      revoke();
+      return proxy;
+    }],
+  ] as const)("sanitizes %s while retaining the registration stage and completed upload", async (_name, createFailure) => {
+    const f = fixtures();
+    f.register.mockRejectedValueOnce(createFailure());
+    const error = await connectServices(["--upload-checker-key", "--register-telegram"], f.dependencies).catch((failure) => failure);
+    expect(error).toBeInstanceOf(ServiceConnectionError);
+    expect(error).toMatchObject({ message: "Service connection failed.", stage: "telegram-webhook", completedOperations: ["checker-key-upload"] });
+    expect(error.reason).toBeUndefined();
+    expect(error.cause).toBeUndefined();
+    expect(serviceConnectionFailureMessage(error)).not.toContain("private-");
+    expect(JSON.stringify(error)).not.toContain("private-");
+    expect(f.close).toHaveBeenCalledOnce();
+    expect(f.dependencies.execute).toHaveBeenCalledTimes(2);
+  });
+
+  it("rejects a guard-code accessor without invoking it", async () => {
+    const f = fixtures();
+    const getter = vi.fn(() => "dns");
+    const failure = Object.defineProperty(new WebGuardError("dns"), "code", { get: getter });
+    f.register.mockRejectedValueOnce(failure);
+    const error = await connectServices(["--upload-checker-key", "--register-telegram"], f.dependencies).catch((result) => result);
+    expect(error).toMatchObject({ stage: "telegram-webhook", completedOperations: ["checker-key-upload"] });
+    expect(error.reason).toBeUndefined();
+    expect(getter).not.toHaveBeenCalled();
+    expect(f.close).toHaveBeenCalledOnce();
+  });
+
+  it.each(["telegram-database", "telegram-cleanup", "checker-metadata"] as const)("does not attach guard reasons outside the registration stage (%s)", async (stage) => {
+    const f = fixtures();
+    const failure = new WebGuardError("tls");
+    if (stage === "telegram-database") f.dependencies.registration.mockRejectedValueOnce(failure);
+    if (stage === "telegram-cleanup") f.close.mockRejectedValueOnce(failure);
+    if (stage === "checker-metadata") f.dependencies.execute.mockRejectedValueOnce(failure);
+    const error = await connectServices(["--upload-checker-key", "--register-telegram"], f.dependencies).catch((result) => result);
+    expect(error.stage).toBe(stage);
+    expect(error.reason).toBeUndefined();
+    expect(error.cause).toBeUndefined();
+    expect(serviceConnectionFailureMessage(error)).not.toContain("The secure connection failed.");
+  });
+
+  it("preserves the safe registration reason when closing the failed registration also fails", async () => {
+    const f = fixtures();
+    f.register.mockRejectedValueOnce(new WebGuardError("timeout"));
+    f.close.mockRejectedValueOnce(new Error("private-database-cleanup-detail"));
+    const error = await connectServices(["--upload-checker-key", "--register-telegram"], f.dependencies).catch((failure) => failure);
+    expect(error).toMatchObject({ stage: "telegram-webhook", reason: "timeout", completedOperations: ["checker-key-upload"] });
+    expect(f.close).toHaveBeenCalledOnce();
+    expect(serviceConnectionFailureMessage(error)).not.toContain("private-");
+    expect(error.cause).toBeUndefined();
   });
 
   it("refuses mismatched trusted Worker settings and duplicate private entries before external mutations", async () => {
