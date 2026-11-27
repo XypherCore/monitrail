@@ -164,7 +164,13 @@ healthy result.
   workflow was enabled with the public APP_URL variable and passed its
   [initial run](https://github.com/XypherCore/monitrail/actions/runs/45191481598)
   and [latest observed run](https://github.com/XypherCore/monitrail/actions/runs/45940784153).
-  Owner failure-notification preferences remain unverified.
+  The owner subsequently confirmed failure notifications were already enabled.
+- The follow-up diagnostic and getter/Proxy hardening passed full CI on
+  main at `78d0e0196bedc5879954410c71f541a869ecb83d`:
+  [run 46014990931](https://github.com/XypherCore/monitrail/actions/runs/46014990931).
+  Active Worker metadata reported version
+  `a70d3d5d-27ec-42b6-aa0d-230ec9ee91e3` at 100% traffic. Version metadata
+  alone does not verify daily maintenance CPU.
 - The canonical health endpoint again returned 200. Public landing,
   login and bot pages returned 200, fit 360 px, retained the expected
   security headers and produced zero console errors or external requests.
@@ -172,6 +178,12 @@ healthy result.
   returned 401 and an unauthenticated Telegram callback returned the
   handler's intentional 404. Sign-in CSRF setup returned 200 without
   exposing its token.
+- Both public OAuth initiation flows returned 200 and generated the
+  expected provider hosts and production callback addresses. Verification
+  stopped before navigating to either provider, used no invitation and
+  created no account. Authorization URLs, client IDs, cookies and state
+  values were not displayed. This verifies initiation, not provider
+  consent, callback acceptance or a signed-in session.
 - Added fixed, allowlisted Telegram guard reasons to operator failures.
   A fresh independent review found that a forged error getter or Proxy
   could escape sanitization. Guarded own-data-property extraction and seven
@@ -184,30 +196,100 @@ healthy result.
   restricted role, storing only the hash in PostgreSQL and the code in the
   ignored owner-only file. No code was displayed. The owner reported that
   provider callbacks still needed the production domain; exact settings
-  were supplied for the existing OAuth apps. Both production sign-ins and
-  real private-chat alert delivery remain acceptance gates.
-- Source remains private. Proof collection remains gated pending the two
-  approved monitors, configured export IDs, a verified encrypted capture
-  and the common proof start. Calendar time since deployment does not count
-  as a completed proof run.
+  were supplied for the existing OAuth apps. The owner saved those settings
+  and confirmed GitHub sign-in worked. Reusing that consumed invite for
+  Google was rejected as intended. The consumed local invite file was
+  removed and one fresh code was generated privately for the Google test,
+  with logout and a different-email account required by the provider-based
+  identity policy. The owner then confirmed Google sign-in worked and,
+  after refreshing Channels, that Telegram was connected and a real test
+  alert arrived in the private chat. The silent Start command was expected:
+  linking does not send a welcome reply. These are owner-reported live
+  acceptance results, distinct from automated OAuth initiation checks.
+- Native invocation logging was schema-validated, independently reviewed
+  and deployed from clean revision
+  `e39e109cfd1be45e1fa637d15d9ef51b2de18134` as Worker version
+  `1e23a541-80b8-4a47-a5f1-b67bddef12b1`. Query redaction is enabled,
+  request tracing disabled and the existing schedules, Queue and signing
+  secret preserved. The pinned dry-run build, lint and all seven native
+  runtime checks passed. No application retention or scheduler rule changed.
+  The runbook records the Free logging allowance and December 1 pricing
+  transition.
+- A bounded live tail observed that exact version executing the minute
+  Cron and fixed Queue successfully at 14:40:31.369 and 14:40:35.713 UTC
+  on 2026-11-27. Only fixed metadata and numeric timing fields were retained;
+  raw logs, bodies, URLs and headers were discarded. The stream's timing
+  units were not yet verified and it did not contain a daily invocation,
+  so daily maintenance CPU remains unverified.
+- The owner supplied the two approved monitor detail links after being
+  asked to create five-minute monitors and wait for Up. Their private IDs
+  were selected through a tested operator option, uploaded to Vercel and
+  kept out of source and documentation. Existing production keys were
+  preserved. The rebuilt deployment
+  `dpl_6jVMiYP4SFyMqfRyzrkXeh1SnJxQ` reached READY with the canonical
+  alias and the same application source revision `86a417d`. The public
+  security and 360 px checks passed again, including health 200, zero
+  console errors and zero unexpected external requests.
+- A manual encrypted-capture preflight ran before the rebuild completed
+  and failed without uploading an artifact. After the rebuild reached
+  READY, [attempt 2 of run 46021660196](https://github.com/XypherCore/monitrail/actions/runs/46021660196/attempts/2)
+  successfully captured, encrypted and uploaded the private projection.
+  Only the encrypted artifact was downloaded into an owner-only durable
+  directory outside the checkout; the encrypted file has mode 0600.
+- The reviewed local decryption command then succeeded without loading the
+  production environment into the process. The allowlisted snapshot
+  matched exactly the two selected monitors, both at revision 1, interval
+  300 seconds and unpaused. Each had four accepted checks, its latest
+  result healthy; no acceptance evidence was missing and no incident was
+  present. The plaintext snapshot also has mode 0600 outside the checkout.
+  This verifies collection and decryption, not fourteen days of operation.
+- The same preflight exposed cadence drift: mean receipt gaps were 361 and
+  362 seconds, with a maximum of 363 seconds for each monitor. Scheduling
+  the next check relative to acceptance and polling once per minute adds
+  delay. This short sample is not a completed daily score, but it makes the
+  strict fixed-slot proof a readiness concern. No scheduling rule or
+  measurement threshold was changed; the formal proof remains unstarted
+  while the timing rule is reviewed with the owner.
+- The owner then explicitly approved the normal scheduling correction:
+  advance from the consumed due time along the configured interval grid,
+  skipping missed times, while retaining the 60-second acceptance-relative
+  confirmation retry. Docs 02 and 07 record the approved rule before its
+  implementation. Proof thresholds, quotas and incident thresholds stay
+  unchanged.
+- Eight new scheduling regression cases were written first. Against the
+  old code the ingestion suite had seven failures and fourteen passes.
+  The corrected SQL advances the locked row's due time using PostgreSQL
+  arithmetic, preserving microseconds and skipping expired grid points.
+  The ingestion, claim and state-machine suites then passed all 36 focused
+  tests. Independent review found no open correctness or security issues.
+  Full regression verification passed 650 web tests, 377 checker/shared
+  tests and 22 script tests; the seven native Worker tests also passed,
+  1,056 total. Web lint, type checking and whitespace checks passed.
+  Live corrected cadence remains to be verified after deployment.
+- Source remains private. The common proof start and scheduled collection
+  remain gated pending deployment acceptance and cadence review.
+  This manual preflight is not the start of the formal 14-day run.
+  Calendar time since deployment does not count as a completed proof run.
 
 ## Open completion checks
 
 - [x] Production settings uploaded, DNS propagated and HTTPS verified.
-- [ ] CI green for the deployment changes and source/history scans clean.
+- [x] CI green for the deployment changes and source/history scans clean.
 - [x] Web app and private Worker deployed with matching fresh signing keys.
-- [ ] Hosted database TLS, both OAuth providers and real alert delivery verified.
+- [x] Hosted database TLS, both OAuth providers and real alert delivery verified.
 - [ ] Scheduled checker and daily maintenance CPU observed on the Free plan.
 - [x] Independent production health workflow enabled and verified.
-- [ ] Owner failure notifications enabled and verified.
+- [x] Owner failure notifications enabled (owner confirmed).
 - [ ] Source released under MIT after deployment acceptance.
-- [ ] Two approved dogfood monitors and private evidence collection started.
+- [x] Two approved dogfood monitors and manual encrypted capture/decryption verified.
+- [ ] Common proof start recorded and scheduled evidence collection enabled.
 - [ ] Fourteen real consecutive clean days, all incidents reviewed and missed
   slots below the approved daily thresholds.
 - [ ] Three anonymous first-monitor trials and measured case study recorded.
 
 Operational commands, privacy boundaries and proof limitations are in the
 [Phase 11 runbook](phase-11-runbook.md). Remaining uncertainty includes
-deployed cadence under the strict fixed-slot rule, hosted integrations and
-the actual 14-day outcome. No scheduler, quota, retention or state-machine
-constant was changed to make the proof easier.
+daily maintenance CPU, deployed cadence under the strict fixed-slot rule,
+the human trials and the actual 14-day outcome. The scheduling correction
+has explicit owner approval. No quota, application retention, incident
+threshold or proof threshold was changed to make the proof easier.

@@ -217,9 +217,14 @@ Existing production keys are preserved. The exporter refuses the checker
 key for proof authentication. Database credentials are never uploaded to
 GitHub.
 
-After the two approved monitors exist, add their comma-separated IDs as
-DOGFOOD_EXPORT_MONITOR_IDS in the ignored production file. Re-run the
-production configuration command and deploy the updated environment.
+After the two approved monitors exist, select their comma-separated IDs
+with the configuration command's `--proof-monitor-ids '<first-uuid>,<second-uuid>'`
+option together with `--enable-proof-capture`. This validates exactly two
+distinct IDs, preserves the existing keys and saves the selection in the
+ignored production file. Use `npm --silent run` to suppress npm's argument
+echo, and avoid saving the command in shared shell history. The IDs are
+private operational scope, not public documentation. Deploy the updated
+environment after uploading it.
 The signed export accepts no IDs or time bounds from a request. It uses
 the two server-configured IDs and a rolling 24-hour database-clock window.
 Without both configured IDs it fails closed.
@@ -232,14 +237,20 @@ file write. The format is `v1.<key-id>.<nonce>.<ciphertext-and-tag>` using
 AES-256-GCM and authenticated version/key-ID metadata. The default key ID
 is `proof-1`; preserve it or configure the same ID for capture/decryption.
 
-Download artifacts into the private durable evidence directory. With the
-proof key loaded locally, decrypt each new snapshot:
+Download artifacts into the private durable evidence directory. Decrypt
+each new snapshot with the canonical local production proof key:
 
 ```sh
-node --env-file=web/.env.production.local scripts/decrypt-dogfood.mjs \
+node scripts/decrypt-dogfood.mjs \
   --input /private/monitrail-proof/dogfood-evidence.enc \
-  --output /private/monitrail-proof/new-snapshot.json
+  --output /private/monitrail-proof/new-snapshot.json --production-key
 ```
+
+This mode reads the owned, private, bounded regular production file,
+rejects a symlinked production file and leaves permissions unchanged. It
+selects only the proof key and optional key ID and never loads unrelated settings into the process
+environment. It rejects duplicate or ambiguous proof entries. The existing
+environment-only mode remains available by omitting `--production-key`.
 
 Use the first verified database snapshot to record the common proof start
 and baseline revisions in the private manifest, then enable the scheduled
@@ -315,9 +326,11 @@ The evaluator cannot create elapsed operating time from fixture tests.
 
 Exit status is 0 for passed, 2 for incomplete, and 1 for failed, restart
 required or invalid input. Keep private snapshots and reports backed up.
-The current scheduler uses acceptance-relative next checks; the approved
-fixed-slot proof may reveal cadence failures. Do not change scheduling or
-relax the measurement to hide them.
+The owner-approved scheduling correction keeps settled checks on the
+consumed due time's interval grid, skips missed times and preserves the
+60-second acceptance-relative confirmation retry. Verify its deployed
+cadence before starting the proof. Do not relax the fixed-slot measurement
+to hide failures.
 
 ## Completion evidence
 
