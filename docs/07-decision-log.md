@@ -122,6 +122,15 @@ first, then the code.
   across the fleet. Slots intersecting a pause are excluded. Configuration
   changes restart the run. The human first-monitor timer stops at the
   first healthy result. These measurement rules do not change scheduling.
+- **Phase 11 cadence correction**: the first live encrypted preflight
+  showed 361–363-second receipt gaps for five-minute monitors. The owner
+  approved scheduling settled checks from the consumed due time's interval
+  grid, skipping missed times instead of replaying a backlog. The next due
+  time is strictly after database acceptance. The existing 60-second
+  acceptance-relative confirmation rule remains unchanged. After a
+  confirmation settles, its due time anchors subsequent normal checks;
+  no extra historical schedule is persisted. This changes scheduling,
+  not the strict proof thresholds, quotas or incident thresholds.
 - **Automatic proof capture**: the owner approved encrypted GitHub Actions
   snapshots so collection continues while the operator's laptop is off.
   A separate signed read-only endpoint exports only two configured

@@ -7,6 +7,7 @@ import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
 import { createMonitorAccess } from "../data/monitor-access.ts";
 import type { AttemptResult } from "./capabilities.ts";
 import { ingestResults } from "./check-ingest.ts";
+import { createCheckCapabilities } from "./checks.ts";
 
 const owner = "a0000000-0000-4000-8000-000000000001";
 const otherOwner = "a0000000-0000-4000-8000-000000000002";
@@ -28,9 +29,21 @@ describe("single-use check ingestion", () => {
     await migrate(db, {
       migrationsFolder: fileURLToPath(new URL("../../drizzle-rev2", import.meta.url)),
     });
+    // Freeze only this disposable database's receipt clock for exact boundary tests.
+    // Keep the real PostgreSQL timestamp arithmetic, including microseconds.
+    await client.exec(`
+      CREATE SCHEMA fixture_clock;
+      CREATE FUNCTION fixture_clock.clock_timestamp() RETURNS timestamptz
+      LANGUAGE sql VOLATILE AS $$
+        SELECT coalesce(nullif(current_setting('monitrail.fixture_accepted_at',true),'')::timestamptz,
+          pg_catalog.clock_timestamp())
+      $$;
+      SET search_path TO fixture_clock,public,pg_catalog;
+    `);
   }, 30_000);
 
   beforeEach(async () => {
+    await client.exec("RESET monitrail.fixture_accepted_at");
     await client.exec("TRUNCATE users, system_heartbeat CASCADE");
     await client.query(
       "INSERT INTO users(id,name) VALUES($1,'Fixture owner'),($2,'Other fixture owner')",
@@ -91,6 +104,26 @@ describe("single-use check ingestion", () => {
     return (await rows("SELECT * FROM monitors WHERE id=$1", [id]))[0];
   }
 
+  async function receiptAt(at: string) {
+    await client.query("SELECT set_config('monitrail.fixture_accepted_at',$1,false)", [at]);
+  }
+
+  async function acceptAt(id: string, at: string, measurement: Measurement = ok) {
+    await receiptAt(at);
+    const result = await lease(id, new Date(Date.parse(at) - 250), measurement, {
+      claimedAt: new Date(Date.parse(at) - 500),
+    });
+    await accept(result);
+    return result;
+  }
+
+  async function expectNextAt(id: string, at: string) {
+    expect(await rows(
+      "SELECT next_check_at=$2::timestamptz AS exact,next_check_at>clock_timestamp() AS future FROM monitors WHERE id=$1",
+      [id, at],
+    )).toEqual([{ exact: true, future: true }]);
+  }
+
   async function channel(monitorId: string, verified: boolean, linked = true) {
     const [{ id }] = await rows<{ id: string }>(
       "INSERT INTO alert_channels(user_id,type,label,config_enc,is_verified) VALUES($1,'webhook','Fixture','v1.fixture.fixture.fixture',$2) RETURNING id",
@@ -129,6 +162,110 @@ describe("single-use check ingestion", () => {
     expect(await rows("SELECT last_claimed,last_ingested FROM system_heartbeat")).toEqual([
       { last_claimed: 3, last_ingested: 1 },
     ]);
+  });
+
+  it.each([
+    {
+      name: "a receipt 61 seconds late",
+      dueAt: "2026-11-27T12:00:00.123456Z",
+      acceptedAt: "2026-11-27T12:01:01.987654Z",
+      nextAt: "2026-11-27T12:05:00.123456Z",
+    },
+    {
+      name: "a receipt one microsecond before the next slot",
+      dueAt: "2026-11-27T12:00:00.123456Z",
+      acceptedAt: "2026-11-27T12:05:00.123455Z",
+      nextAt: "2026-11-27T12:05:00.123456Z",
+    },
+    {
+      name: "a receipt exactly on the next slot",
+      dueAt: "2026-11-27T12:00:00.123456Z",
+      acceptedAt: "2026-11-27T12:05:00.123456Z",
+      nextAt: "2026-11-27T12:10:00.123456Z",
+    },
+    {
+      name: "a receipt one microsecond after the next slot",
+      dueAt: "2026-11-27T12:00:00.123456Z",
+      acceptedAt: "2026-11-27T12:05:00.123457Z",
+      nextAt: "2026-11-27T12:10:00.123456Z",
+    },
+    {
+      name: "a monitor overdue by several intervals",
+      dueAt: "2026-11-27T11:40:00.123456Z",
+      acceptedAt: "2026-11-27T12:01:01.987654Z",
+      nextAt: "2026-11-27T12:05:00.123456Z",
+    },
+  ])("keeps the settled due-time grid for $name without catch-up claims", async ({ dueAt, acceptedAt, nextAt }) => {
+    const id = await monitor();
+    await client.query("UPDATE monitors SET next_check_at=$1 WHERE id=$2", [dueAt, id]);
+    await acceptAt(id, acceptedAt);
+    await expectNextAt(id, nextAt);
+    expect((await createCheckCapabilities(db).claimChecks({ max: 15 })).jobs).toEqual([]);
+    expect(await rows("SELECT state FROM check_attempts")).toEqual([{ state: "done" }]);
+  });
+
+  it("keeps the same normal grid across repeated late receipts", async () => {
+    const id = await monitor();
+    await client.query("UPDATE monitors SET next_check_at=$1 WHERE id=$2", ["2026-11-27T12:00:00.123456Z", id]);
+    for (const [acceptedAt, nextAt] of [
+      ["2026-11-27T12:01:01.987654Z", "2026-11-27T12:05:00.123456Z"],
+      ["2026-11-27T12:06:01.987654Z", "2026-11-27T12:10:00.123456Z"],
+      ["2026-11-27T12:11:01.987654Z", "2026-11-27T12:15:00.123456Z"],
+    ]) {
+      await acceptAt(id, acceptedAt);
+      await expectNextAt(id, nextAt);
+    }
+    expect(await rows("SELECT count(*)::int AS count FROM checks")).toEqual([{ count: 3 }]);
+  });
+
+  it("keeps 60-second confirmation retries and anchors settled checks to the latest confirmation due", async () => {
+    const id = await monitor();
+    await client.query("UPDATE monitors SET next_check_at=$1 WHERE id=$2", ["2026-11-27T12:00:00.123456Z", id]);
+    const firstFailure = await acceptAt(id, "2026-11-27T12:01:01.987654Z", failed);
+    await expectNextAt(id, "2026-11-27T12:02:01.987654Z");
+    expect(await rows(
+      "SELECT m.next_check_at=a.terminal_at+interval '60 seconds' AS exact FROM monitors m JOIN check_attempts a ON a.monitor_id=m.id WHERE a.attempt_id=$1",
+      [firstFailure.attemptId],
+    )).toEqual([{ exact: true }]);
+
+    await acceptAt(id, "2026-11-27T12:02:03.112233Z", failed);
+    expect(await stored(id)).toMatchObject({ status: "down", failures: 2 });
+    await expectNextAt(id, "2026-11-27T12:07:01.987654Z");
+    await acceptAt(id, "2026-11-27T12:07:03.112233Z", failed);
+    await expectNextAt(id, "2026-11-27T12:12:01.987654Z");
+
+    const firstRecovery = await acceptAt(id, "2026-11-27T12:12:04.223344Z");
+    expect(await stored(id)).toMatchObject({ status: "down", successes: 1 });
+    await expectNextAt(id, "2026-11-27T12:13:04.223344Z");
+    expect(await rows(
+      "SELECT m.next_check_at=a.terminal_at+interval '60 seconds' AS exact FROM monitors m JOIN check_attempts a ON a.monitor_id=m.id WHERE a.attempt_id=$1",
+      [firstRecovery.attemptId],
+    )).toEqual([{ exact: true }]);
+
+    await acceptAt(id, "2026-11-27T12:13:07.334455Z");
+    expect(await stored(id)).toMatchObject({ status: "up", successes: 2 });
+    await expectNextAt(id, "2026-11-27T12:18:04.223344Z");
+    expect(await rows("SELECT resolved_reason FROM incidents")).toEqual([{ resolved_reason: "recovered" }]);
+  });
+
+  it("uses the current interval after an interval-only edit preserves the due time and in-flight attempt", async () => {
+    const id = await monitor();
+    const dueAt = "2026-11-27T12:00:00.123456Z";
+    const acceptedAt = "2026-11-27T12:01:01.987654Z";
+    await receiptAt(acceptedAt);
+    await client.query("UPDATE monitors SET next_check_at=$1 WHERE id=$2", [dueAt, id]);
+    const result = await lease(id, new Date(Date.parse(acceptedAt) - 250));
+    expect(await createMonitorAccess(db, owner, appUrl).editMonitor(id, {
+      name: "Fixture monitor",
+      expectedStatus: "2xx",
+      intervalSeconds: 600,
+    })).toBe(true);
+    expect(await stored(id)).toMatchObject({ interval_seconds: 600, config_rev: 1, lease_id: result.attemptId });
+    expect(await rows("SELECT next_check_at=$2::timestamptz AS exact FROM monitors WHERE id=$1", [id, dueAt]))
+      .toEqual([{ exact: true }]);
+    expect(await attempt(result.attemptId)).toMatchObject({ state: "claimed" });
+    await accept(result);
+    await expectNextAt(id, "2026-11-27T12:10:00.123456Z");
   });
 
   it("marks nonmatching HTTP status as bad_status and avoids an incident for a flap", async () => {

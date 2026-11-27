@@ -186,11 +186,18 @@ async function ingestOne(tx: DataExecutor, result: AttemptResult): Promise<Check
 
   const { state, delaySeconds, incident } = advanceCheck(monitor, observation, checkedAt, monitor.intervalSeconds);
   if (incident) await persistIncident(tx, monitor, result.monitorId, incident, acceptedAt);
+  // Settled checks retain the consumed due time's grid and skip elapsed slots.
+  // Keep the arithmetic in PostgreSQL so the anchor retains its microseconds.
+  const nextCheckAt = delaySeconds === monitor.intervalSeconds
+    ? sql`next_check_at + greatest(1,
+        floor(extract(epoch FROM (${acceptedAt}::timestamptz - next_check_at)) / interval_seconds) + 1
+      ) * interval_seconds * interval '1 second'`
+    : sql`${acceptedAt}::timestamptz + ${delaySeconds}::double precision * interval '1 second'`;
   await tx.execute(sql`
     UPDATE monitors SET status=${state.status},failures=${state.failures},successes=${state.successes},
       streak_started_at=${state.streakStartedAt}::timestamptz,streak_first_error=${state.streakFirstError},
       last_checked_at=${checkedAt}::timestamptz,
-      next_check_at=${acceptedAt}::timestamptz + ${delaySeconds}::double precision * interval '1 second',
+      next_check_at=${nextCheckAt},
       lease_id=NULL,lease_until=NULL
     WHERE id=${result.monitorId}
   `);

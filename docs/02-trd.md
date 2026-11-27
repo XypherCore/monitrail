@@ -127,9 +127,22 @@ on accepted result for monitor M:
         open incident (started_at = streak_started_at, confirmed_at = now,
         cause = streak_first_error), status = down, enqueue "down" alerts
   unsettled = (status != down and failures > 0) or (status == down and successes > 0)
-  next_check_at = now + (unsettled ? CONFIRM_RETRY : interval)
+  if unsettled: next_check_at = now + CONFIRM_RETRY
+  else:
+    due = next_check_at
+    steps = max(1, floor((now - due) / interval) + 1)
+    next_check_at = due + steps * interval
   last_checked_at = checked_at; clear lease
 ```
+Here `now` is the database acceptance time captured after locking the
+monitor and attempt. Settled checks retain the consumed due time's interval
+grid and skip past missed times to choose the first later grid point.
+They do not replay a backlog or add processing time to every interval.
+Confirmation retries remain acceptance time plus 60 seconds. When a
+confirmation settles, its consumed due time anchors subsequent normal
+checks. No separate pre-incident schedule is persisted. Timestamp
+arithmetic stays in PostgreSQL to preserve stored precision.
+
 Lifecycle changes (all bump `config_rev`, clear the lease, reset counters):
 - Pause: `is_paused = true`; open incident closes with reason `paused`; no
   recovery alert. Resume: status `pending`, `next_check_at = now`.
