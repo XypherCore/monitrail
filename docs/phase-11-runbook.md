@@ -91,6 +91,32 @@ and deploy its private Queue consumer and both schedules. It has no
 database credential, public Worker endpoint or preview URL. Verify minute
 ticks and measure the daily maintenance invocation's CPU on the Free plan.
 
+The private Worker persists native invocation logs with request tracing
+disabled and query redaction enabled. Keep outbound tracing disabled;
+invocation records identify the Cron or fixed Queue marker, and application
+logs contain bounded operational metrics. No external log destination is
+configured. Sampling uses the platform default of 1.
+[Workers Logs configuration](https://developers.cloudflare.com/workers/observability/logs/workers-logs/).
+
+For maintenance evidence, select the exact `17 3 * * *` invocation and
+deployed version in Cloudflare's Logs Query Builder. Record only its UTC
+timestamp, schedule, version, outcome, CPU and wall time. Require a
+successful outcome and finite `$workers.cpuTimeMs` no greater than 10 ms.
+Outcome or wall time alone does not verify CPU. Live `wrangler tail` cannot
+recover historical events and may omit CPU fields. Observability settings
+are non-versioned; version metadata alone cannot establish their current
+state. [Query Builder](https://developers.cloudflare.com/workers/observability/query-builder/),
+[script settings](https://developers.cloudflare.com/api/resources/workers/subresources/scripts/subresources/settings/methods/get/).
+
+Through 2026-11-30, Free includes 200,000 log events per day with three-day
+retention. From 2026-12-01, Free includes 0.5 GB daily ingestion shared
+across the account's Observability products and seven-day retention;
+ingestion stops at the daily limit without paid overage. Export the narrow
+CPU evidence before retention expires and account for other workloads.
+Application database retention remains unchanged.
+[Workers Logs limits](https://developers.cloudflare.com/workers/observability/logs/workers-logs/),
+[December pricing transition](https://developers.cloudflare.com/observability/pricing/).
+
 From the repository root, connect the deployed services with the private
 production configuration:
 
