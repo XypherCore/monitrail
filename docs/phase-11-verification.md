@@ -1,8 +1,9 @@
 # Phase 11 verification
 
 Phase 11 is in progress. It covers production deployment, MIT source
-release and 14 consecutive clean days of dogfood. The proof period has
-not started and the phase is not complete.
+release and 14 consecutive clean days of dogfood. The proof period started
+on 2026-11-28 at 12:50:21.487 UTC. Zero full days had elapsed at
+initialization; the phase is not complete.
 
 ## Owner decisions
 
@@ -368,6 +369,60 @@ healthy result.
   fresh formal baseline remain to be executed; the proof clock has not
   started at this point. No earlier snapshot will be backdated into the run.
 
+## Source release and proof initialization 2026-11-28
+
+- [Release CI 46145991239](https://github.com/XypherCore/monitrail/actions/runs/46145991239)
+  passed at `dd20770a52e953586b64870be7cf68552923987e`. The owner-approved
+  [repository](https://github.com/XypherCore/monitrail) was then made public;
+  GitHub metadata confirmed PUBLIC visibility and the MIT license. Hosted
+  signups remain invite-only. No application redeployment was needed for
+  these documentation changes.
+- The commit-identity audit found only the project alias, the previously
+  approved public brand alias and GitHub's service committer. No history
+  rewrite was necessary. All three artifact names present before release
+  matched encrypted proof artifacts. GitHub secret scanning and push
+  protection were enabled after PUBLIC visibility was verified. These are
+  available for public repositories without purchasing a security product.
+  [GitHub security availability](https://docs.github.com/en/code-security/getting-started/github-security-features).
+- [Formal baseline capture 46146601478](https://github.com/XypherCore/monitrail/actions/runs/46146601478)
+  succeeded after deployment acceptance and source publication. Its new
+  encrypted artifact and decrypted snapshot were saved outside the checkout
+  with owner-only permissions. The approved scope matched, both monitors
+  were unpaused at revision 1 and interval 300 seconds, and recent results
+  were healthy. No receipts were missing and no incidents were present.
+- The common start is that fresh snapshot's database capture time,
+  `2026-11-28T12:50:21.487Z` (18:20:21.487 IST). The earlier readiness and
+  preflight snapshots do not add elapsed proof days. A reviewed temporary
+  initializer passed nine synthetic tests, then created a new private
+  manifest, empty review journal and initial report in an owner-only
+  durable directory. The existing scorer validated the inputs and returned
+  `incomplete`, zero completed days and only `proof_period_not_elapsed`.
+  No monitor IDs, snapshots or keys were committed.
+- The manifest's grace cutoff is `2026-12-12T12:51:21.487Z`
+  (18:21:21.487 IST). Final capture coverage and assessment must extend
+  strictly beyond that instant. This is an earliest assessment boundary,
+  not a promise of passing: fourteen consecutive clean days and incident
+  reviews are still required.
+- GitHub metadata confirmed `DOGFOOD_ENABLED=true` and the canonical
+  APP_URL. The existing encrypted workflow is enabled for 02:43 and
+  14:43 UTC (08:13 and 20:13 IST), with 30-day encrypted artifact retention.
+  The secret values were neither returned nor changed. The proof key
+  remains local and in GitHub, and database credentials stay out of GitHub.
+- [First post-start capture 46147132399](https://github.com/XypherCore/monitrail/actions/runs/46147132399)
+  succeeded after the first slot's grace boundary. It was downloaded and
+  decrypted into new private files. Assessment at
+  `2026-11-28T12:56:57.660Z` used the saved manifest and both verified
+  snapshots. Each monitor had one mature expected slot and one received
+  check, with zero missed or excluded slots; fleet totals were two
+  expected and two received. There were no missing receipts or incidents.
+  The report correctly remained `incomplete`, zero completed days, with
+  only `proof_period_not_elapsed`. The first full day cannot mature before
+  its own 24-hour-plus-grace cutoff. A private operator index links the
+  durable captures and CPU evidence for subsequent assessments.
+- The owner needs time to arrange the three distinct human trials. They
+  remain open; no trial duration or success has been invented. Proof
+  collection continues independently while participants are arranged.
+
 ## Open completion checks
 
 - [x] Production settings uploaded, DNS propagated and HTTPS verified.
@@ -381,9 +436,9 @@ healthy result.
 - [x] Daily maintenance meets the Free Cron CPU budget (owner-reported 1 ms).
 - [x] Independent production health workflow enabled and verified.
 - [x] Owner failure notifications enabled (owner confirmed).
-- [ ] Source released under MIT after deployment acceptance.
+- [x] Source released under MIT after deployment acceptance.
 - [x] Two approved dogfood monitors and manual encrypted capture/decryption verified.
-- [ ] Common proof start recorded and scheduled evidence collection enabled.
+- [x] Common proof start recorded and scheduled evidence collection enabled.
 - [ ] Fourteen real consecutive clean days, all incidents reviewed and missed
   slots below the approved daily thresholds.
 - [ ] Three anonymous first-monitor trials and measured case study recorded.
