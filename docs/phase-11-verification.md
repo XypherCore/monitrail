@@ -297,9 +297,9 @@ healthy result.
   monitor was paused. The snapshot had no missing receipts or incidents.
   This short sample validates the deployed correction; it does not
   establish the daily missed-slot threshold or fourteen clean days.
-- Source remains private. The common proof start and scheduled collection
-  remain gated pending scheduled maintenance CPU evidence. A short cadence
-  sample does not close that gate.
+- After the November 27 preflight, source remained private. The common
+  proof start and scheduled collection still awaited scheduled maintenance
+  CPU evidence. A short cadence sample did not close that gate.
   This manual preflight is not the start of the formal 14-day run.
   Calendar time since deployment does not count as a completed proof run.
 - The owner selected the visible login page as the human-trial starting
@@ -318,6 +318,56 @@ healthy result.
   The broader mutation/revocation suite remains covered by CI; this manual
   result does not claim every mutation was repeated against the host.
 
+## Launch readiness verified 2026-11-28
+
+- Production health returned 200. The public landing, login and bot pages
+  passed the existing 360 px and security-header checks again, with zero
+  console errors or unexpected external requests. Protected dashboard
+  access redirected, unsigned proof export returned 401, and the Telegram
+  callback retained its intentional unauthenticated 404.
+- Read-only metadata confirmed production web revision `575a1e2` remained
+  READY with the canonical alias and the private Worker still routed 100%
+  to version `1e23a541-80b8-4a47-a5f1-b67bddef12b1`.
+  [CI run 46029556414](https://github.com/XypherCore/monitrail/actions/runs/46029556414)
+  passed on main at `72208fc`; subsequent phase-branch changes were
+  documentation only.
+- Source/history pattern scans passed. The configured-value scan passed
+  across 419 eligible and built browser files, the index and 69 reachable
+  commits. These were read-only scans; no secret values were displayed.
+- [Readiness capture 46145005202](https://github.com/XypherCore/monitrail/actions/runs/46145005202)
+  succeeded and was downloaded/decrypted into new private files outside
+  the checkout. At 12:30:50.924 UTC it showed both approved monitors at
+  revision 1, interval 300 seconds and unpaused. Since the correction's
+  15:30 UTC observation boundary on November 27, each had 252 accepted
+  checks, mean gaps of 300 seconds and a maximum gap of 304 seconds. Both
+  latest results were healthy. The snapshot had no incidents or missing
+  acceptance evidence. This readiness capture is not the formal start.
+- A narrow temporary operator helper used documented Wrangler
+  authentication only in memory, disabled logs/telemetry and queried only
+  this Worker's maintenance window. Three synthetic safety tests and
+  independent review covered projection privacy and fail-closed handling
+  of missing CPU, duplicate records and incomplete results. Cloudflare's
+  stored-log query returned HTTP 403. No raw provider descriptions or
+  credentials were displayed, and no independent API CPU result was claimed.
+- The owner supplied a successful production Queue record: queue
+  `monitrail-check-ticks`, batch size 1, CPU 3 ms and wall time 8,462 ms.
+  The excerpt omitted its timestamp/version and does not establish the
+  daily Cron's CPU. The owner then supplied the requested daily record:
+  `eventType: scheduled`, Cron `17 3 * * *`, expected version
+  `1e23a541-80b8-4a47-a5f1-b67bddef12b1`, outcome `ok`, CPU 1 ms and wall
+  time 9,082 ms. Its supplied scheduled-time number was `1795835867`.
+  Interpreting that number as Unix seconds yields
+  `2026-11-28T03:17:47.000Z`, matching the requested window. The seconds
+  unit is an inference from magnitude/context, not an independently
+  verified API unit. Original and normalized values, owner-reported
+  provenance and the separate API 403 are preserved in private evidence.
+  An independent second model confirmed this reported invocation meets
+  the existing 10 ms daily Cron CPU criterion. It does not establish
+  elapsed proof days.
+- Deployment acceptance is now recorded. MIT source publication and a
+  fresh formal baseline remain to be executed; the proof clock has not
+  started at this point. No earlier snapshot will be backdated into the run.
+
 ## Open completion checks
 
 - [x] Production settings uploaded, DNS propagated and HTTPS verified.
@@ -327,7 +377,8 @@ healthy result.
 - [x] Approved cadence correction deployed and short live timing sample verified.
 - [x] Hosted signed-in cross-account denial verified (owner reported).
 - [x] Hosted public-page publish/unpublish revocation verified (owner reported).
-- [ ] Scheduled checker and daily maintenance CPU observed on the Free plan.
+- [x] Production checker Queue CPU observed (owner-reported 3 ms).
+- [x] Daily maintenance meets the Free Cron CPU budget (owner-reported 1 ms).
 - [x] Independent production health workflow enabled and verified.
 - [x] Owner failure notifications enabled (owner confirmed).
 - [ ] Source released under MIT after deployment acceptance.
@@ -339,8 +390,8 @@ healthy result.
 
 Operational commands, privacy boundaries and proof limitations are in the
 [Phase 11 runbook](phase-11-runbook.md). Remaining uncertainty includes
-daily maintenance CPU, daily cadence under the strict fixed-slot rule,
-the human trials and the actual 14-day outcome.
+daily cadence under the strict fixed-slot rule, the human trials and the
+actual 14-day outcome.
 The scheduling correction
 has explicit owner approval. No quota, application retention, incident
 threshold or proof threshold was changed to make the proof easier.
